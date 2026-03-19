@@ -12,8 +12,11 @@ from concurshield.engine.ocr import _SYSTEM_PROMPT, _parse_response_json, _valid
 from concurshield.models.schemas import ReceiptData
 
 API_KEY = os.environ.get("MINIMAX_API_KEY", "")
-MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-VL-01")
-BASE_URL = "https://api.minimaxi.com/v1/chat/completions"
+# MiniMax-M2.7: 纯文本旗舰模型（不支持 image_url）
+# MiniMax-Text-01: 基础文本模型（不支持 image_url）
+# 注意: MiniMax API 目前没有公开的视觉模型可用于 chat/completions
+MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.7")
+BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/chat/completions")
 IMAGE_PATH = "test_receipts/normal/test发票.jpg"
 
 

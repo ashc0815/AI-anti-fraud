@@ -116,10 +116,14 @@ def _validate_receipt_data(data: ReceiptData) -> None:
 
 
 def _parse_response_json(text: str) -> dict:
-    """从 Claude 响应文本中解析 JSON。
+    """从 LLM 响应文本中解析 JSON。
+
+    支持处理:
+    - markdown 代码块包裹的 JSON
+    - <think>...</think> 思维链标签（MiniMax 等模型）
 
     Args:
-        text: Claude 返回的文本内容。
+        text: LLM 返回的文本内容。
 
     Returns:
         解析后的字典。
@@ -127,7 +131,11 @@ def _parse_response_json(text: str) -> dict:
     Raises:
         OCRError: JSON 解析失败。
     """
+    import re
+
     cleaned = text.strip()
+    # 去除 <think>...</think> 思维链标签（部分模型如 MiniMax 会返回）
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
     # 兼容 Claude 偶尔用 markdown 代码块包裹的情况
     if cleaned.startswith("```"):
         first_newline = cleaned.index("\n")
@@ -136,7 +144,7 @@ def _parse_response_json(text: str) -> dict:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:
-        raise OCRError(f"Claude 返回的内容无法解析为 JSON: {e}\n原始内容: {text[:500]}")
+        raise OCRError(f"LLM 返回的内容无法解析为 JSON: {e}\n原始内容: {text[:500]}")
 
 
 async def extract_receipt(image_path: str | Path) -> ReceiptData:
