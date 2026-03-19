@@ -1,60 +1,58 @@
 """复合风险评分器 - 综合各模块结果计算最终风险得分"""
 
-from concurshield.models.schemas import (
-    AgentFinding,
-    DuplicateCheckResult,
-    RiskLevel,
-    RiskReport,
-    RuleCheckResult,
-)
+from typing import Literal
+
+from concurshield.models.schemas import AgentAction, ForensicReport, RuleCheckResult
 
 
 def compute_risk_score(
-    rule_results: list[RuleCheckResult],
-    duplicate_result: DuplicateCheckResult,
-    agent_findings: list[AgentFinding],
-) -> float:
-    """综合各模块结果，计算 0-1 的复合风险得分。
+    rule_checks: list[RuleCheckResult],
+    agent_actions: list[AgentAction],
+    duplicate_matches: list[str],
+) -> tuple[float, dict]:
+    """综合各模块结果，计算 0-100 的复合风险得分。
 
-    加权公式：
-    - 规则引擎占 30%
-    - 重复检测占 20%
-    - Agent 分析占 50%
+    返回总分和分项得分：
+    - document_score: 文档层面得分
+    - behavioral_score: 行为层面得分
+    - cross_ref_score: 交叉引用得分
 
     Args:
-        rule_results: 规则检查结果列表。
-        duplicate_result: 重复检测结果。
-        agent_findings: 子 Agent 分析结果。
+        rule_checks: 规则校验结果列表。
+        agent_actions: Agent 工具调用记录。
+        duplicate_matches: 匹配到的历史 receipt_id 列表。
 
     Returns:
-        综合风险得分 (0.0 - 1.0)。
+        (risk_score, risk_breakdown) 元组。
     """
     pass
 
 
-def score_to_risk_level(score: float) -> RiskLevel:
-    """将风险得分映射为风险等级。
+def determine_confidence_tier(
+    risk_score: float, agent_invoked: bool
+) -> Literal["T1", "T2", "T3", "T4"]:
+    """根据风险得分和是否触发 Agent 判定置信分层。
 
-    - [0.0, 0.3) -> LOW
-    - [0.3, 0.6) -> MEDIUM
-    - [0.6, 0.85) -> HIGH
-    - [0.85, 1.0] -> CRITICAL
+    - T1: 自动通过（低风险，无需 Agent）
+    - T2: 自动通过但标记观察
+    - T3: 需人工审核
+    - T4: 自动拒绝（高风险）
 
     Args:
-        score: 风险得分。
+        risk_score: 风险得分 (0-100)。
+        agent_invoked: 是否触发了 Agent 分析。
 
     Returns:
-        对应的风险等级。
+        置信分层标识。
     """
     pass
 
 
-def generate_recommendation(risk_level: RiskLevel, report: RiskReport) -> str:
-    """根据风险等级和报告内容生成处理建议。
+def generate_recommendation(report: ForensicReport) -> str:
+    """根据取证报告生成处理建议。
 
     Args:
-        risk_level: 风险等级。
-        report: 风险报告。
+        report: 取证报告。
 
     Returns:
         处理建议文本。

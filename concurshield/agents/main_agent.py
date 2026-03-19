@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from concurshield.models.schemas import ReceiptInput, RiskReport
+from concurshield.models.schemas import ForensicReport, ReceiptInput
 
 
-def analyze_receipt(receipt_input: ReceiptInput) -> RiskReport:
+def analyze_receipt(receipt_input: ReceiptInput) -> ForensicReport:
     """主编排入口：接收发票输入，协调所有子 Agent 和引擎模块，输出风险报告。
 
     流程：
@@ -19,7 +19,7 @@ def analyze_receipt(receipt_input: ReceiptInput) -> RiskReport:
         receipt_input: 发票输入模型。
 
     Returns:
-        综合风险评估报告。
+        最终取证报告。
     """
     pass
 

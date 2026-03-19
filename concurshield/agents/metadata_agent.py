@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from concurshield.models.schemas import AgentFinding
+from concurshield.models.schemas import AgentAction
 
 
-def analyze_metadata(image_path: str | Path) -> AgentFinding:
+def analyze_metadata(image_path: str | Path) -> list[AgentAction]:
     """分析图片文件的元数据，检测异常信号。
 
     检查项目：
@@ -18,7 +18,7 @@ def analyze_metadata(image_path: str | Path) -> AgentFinding:
         image_path: 图片文件路径。
 
     Returns:
-        元数据分析结果。
+        Agent 工具调用记录列表。
     """
     pass
 
@@ -35,13 +35,13 @@ def extract_exif(image_path: str | Path) -> dict:
     pass
 
 
-def detect_editing_software(exif_data: dict) -> AgentFinding:
+def detect_editing_software(exif_data: dict) -> list[AgentAction]:
     """根据 EXIF 数据检测是否使用了图像编辑软件。
 
     Args:
         exif_data: EXIF 元数据字典。
 
     Returns:
-        编辑软件检测结果。
+        Agent 工具调用记录列表。
     """
     pass

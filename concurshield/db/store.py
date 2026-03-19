@@ -1,6 +1,6 @@
 """SQLite 存储层 - 管理发票记录、哈希和风险报告的持久化"""
 
-from concurshield.models.schemas import AuditLogEntry, RiskReport
+from concurshield.models.schemas import AuditLogEntry, ForensicReport
 
 
 def init_db() -> None:
@@ -15,11 +15,11 @@ def init_db() -> None:
     pass
 
 
-def save_report(report: RiskReport) -> str:
-    """保存风险报告到数据库。
+def save_report(report: ForensicReport) -> str:
+    """保存取证报告到数据库。
 
     Args:
-        report: 风险评估报告。
+        report: 取证报告。
 
     Returns:
         报告 ID。
@@ -27,8 +27,8 @@ def save_report(report: RiskReport) -> str:
     pass
 
 
-def get_report(receipt_id: str) -> RiskReport | None:
-    """根据发票 ID 获取风险报告。
+def get_report(receipt_id: str) -> ForensicReport | None:
+    """根据发票 ID 获取取证报告。
 
     Args:
         receipt_id: 发票 ID。

@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from concurshield.models.schemas import AgentFinding
+from concurshield.models.schemas import AgentAction
 
 
-def analyze_visual_integrity(image_path: str | Path) -> AgentFinding:
+def analyze_visual_integrity(image_path: str | Path) -> list[AgentAction]:
     """分析发票图片的视觉完整性，检测篡改痕迹。
 
     检测项目：
@@ -18,18 +18,18 @@ def analyze_visual_integrity(image_path: str | Path) -> AgentFinding:
         image_path: 发票图片路径。
 
     Returns:
-        视觉取证分析结果。
+        Agent 工具调用记录列表。
     """
     pass
 
 
-def check_ai_generated(image_path: str | Path) -> AgentFinding:
+def check_ai_generated(image_path: str | Path) -> list[AgentAction]:
     """检测图片是否由 AI 生成。
 
     Args:
         image_path: 发票图片路径。
 
     Returns:
-        AI 生成检测结果。
+        Agent 工具调用记录列表。
     """
     pass

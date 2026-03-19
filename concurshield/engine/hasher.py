@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from concurshield.models.schemas import DuplicateCheckResult
+from concurshield.models.schemas import ForensicReport
 
 
 def compute_perceptual_hash(image_path: str | Path) -> str:
@@ -36,7 +36,7 @@ def check_duplicate(
     image_path: str | Path,
     existing_hashes: dict[str, str],
     threshold: int = 10,
-) -> DuplicateCheckResult:
+) -> dict:
     """检查图片是否与已有发票重复。
 
     Args:
@@ -45,6 +45,6 @@ def check_duplicate(
         threshold: 汉明距离阈值，低于此值视为重复。
 
     Returns:
-        重复检测结果。
+        包含 is_duplicate, matched_ids, hash_distance 的字典。
     """
     pass

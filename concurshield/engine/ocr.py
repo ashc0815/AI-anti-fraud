@@ -2,17 +2,17 @@
 
 from pathlib import Path
 
-from concurshield.models.schemas import OCRResult
+from concurshield.models.schemas import ReceiptData
 
 
-def extract_receipt_text(image_path: str | Path) -> OCRResult:
+def extract_receipt_text(image_path: str | Path) -> ReceiptData:
     """使用 Claude Vision 从发票图片中提取结构化信息。
 
     Args:
         image_path: 发票图片的文件路径，支持 PNG/JPG/WEBP。
 
     Returns:
-        OCRResult: 包含商户名称、金额、日期等结构化字段的识别结果。
+        ReceiptData: 包含商户名称、金额、日期等结构化字段的识别结果。
     """
     pass
 

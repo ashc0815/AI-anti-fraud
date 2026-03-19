@@ -1,18 +1,12 @@
 """Pydantic v2 数据模型定义"""
 
 from datetime import datetime
-from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
-class RiskLevel(str, Enum):
-    """风险等级枚举"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+# ── 发票上传输入 ──────────────────────────────────────────────
 
 
 class ReceiptInput(BaseModel):
@@ -22,52 +16,85 @@ class ReceiptInput(BaseModel):
     submitted_at: datetime = Field(default_factory=datetime.now, description="提交时间")
 
 
-class OCRResult(BaseModel):
-    """OCR 识别结果"""
-    merchant_name: Optional[str] = Field(default=None, description="商户名称")
-    total_amount: Optional[float] = Field(default=None, description="总金额")
-    currency: str = Field(default="CNY", description="币种")
-    date: Optional[str] = Field(default=None, description="交易日期")
-    items: list[str] = Field(default_factory=list, description="消费明细")
-    raw_text: str = Field(default="", description="原始识别文本")
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="识别置信度")
+# ── OCR 结构化输出 ────────────────────────────────────────────
+
+
+class ReceiptItem(BaseModel):
+    """收据行项"""
+    description: str = Field(..., description="商品/服务描述")
+    quantity: float = Field(default=1, description="数量")
+    unit_price: float = Field(..., description="单价")
+    amount: float = Field(..., description="行项金额")
+
+
+class ReceiptData(BaseModel):
+    """OCR 结构化输出"""
+    merchant_name: str = Field(..., description="商户名称")
+    merchant_address: Optional[str] = Field(default=None, description="商户地址")
+    merchant_country: str = Field(..., description="商户国家（ISO 3166-1 alpha-2，如 CN、AU）")
+    date: str = Field(..., description="交易日期（YYYY-MM-DD）")
+    currency: str = Field(..., description="币种（ISO 4217，如 CNY、AUD）")
+    items: list[ReceiptItem] = Field(default_factory=list, description="行项列表")
+    subtotal: Optional[float] = Field(default=None, description="小计")
+    tax_amount: Optional[float] = Field(default=None, description="税额")
+    tax_rate: Optional[float] = Field(default=None, description="税率")
+    total: float = Field(..., description="总金额")
+    raw_text: str = Field(default="", description="OCR 原始识别文本")
+
+
+# ── 规则校验 ──────────────────────────────────────────────────
 
 
 class RuleCheckResult(BaseModel):
-    """单条规则检查结果"""
-    rule_name: str = Field(..., description="规则名称")
+    """单条规则校验结果"""
+    rule_id: str = Field(..., description="规则 ID（如 MATH_001）")
+    rule_name: str = Field(..., description="规则名称（如 行项加总校验）")
     passed: bool = Field(..., description="是否通过")
-    detail: str = Field(default="", description="详细说明")
-    severity: RiskLevel = Field(default=RiskLevel.LOW, description="严重程度")
+    severity: Literal["info", "warning", "critical"] = Field(..., description="严重程度")
+    detail: str = Field(default="", description="具体描述")
 
 
-class DuplicateCheckResult(BaseModel):
-    """重复检测结果"""
-    is_duplicate: bool = Field(default=False, description="是否重复")
-    similar_receipt_ids: list[str] = Field(default_factory=list, description="相似发票 ID 列表")
-    hash_distance: Optional[int] = Field(default=None, description="哈希距离")
+# ── Agent 工具调用记录 ────────────────────────────────────────
 
 
-class AgentFinding(BaseModel):
-    """子 Agent 分析结果"""
+class AgentAction(BaseModel):
+    """Agent 的一次工具调用记录"""
     agent_name: str = Field(..., description="Agent 名称")
-    finding: str = Field(..., description="分析结论")
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="置信度")
-    risk_level: RiskLevel = Field(default=RiskLevel.LOW, description="风险等级")
-    evidence: list[str] = Field(default_factory=list, description="证据列表")
+    tool_name: str = Field(..., description="工具名称（如 web_search、claude_vision）")
+    input_summary: str = Field(default="", description="输入摘要")
+    output_summary: str = Field(default="", description="输出摘要")
+    timestamp: datetime = Field(default_factory=datetime.now, description="调用时间")
+    duration_ms: int = Field(default=0, description="耗时（毫秒）")
 
 
-class RiskReport(BaseModel):
-    """综合风险评估报告"""
-    receipt_id: str = Field(..., description="发票唯一 ID")
-    overall_risk_score: float = Field(default=0.0, ge=0.0, le=1.0, description="综合风险得分")
-    risk_level: RiskLevel = Field(default=RiskLevel.LOW, description="风险等级")
-    ocr_result: Optional[OCRResult] = Field(default=None, description="OCR 结果")
-    rule_results: list[RuleCheckResult] = Field(default_factory=list, description="规则检查结果")
-    duplicate_result: Optional[DuplicateCheckResult] = Field(default=None, description="重复检测结果")
-    agent_findings: list[AgentFinding] = Field(default_factory=list, description="Agent 分析结果")
-    recommendation: str = Field(default="", description="处理建议")
+# ── 最终取证报告 ──────────────────────────────────────────────
+
+
+class ForensicReport(BaseModel):
+    """最终取证报告"""
+    receipt_id: str = Field(..., description="发票唯一 ID（UUID）")
+    receipt_data: ReceiptData = Field(..., description="OCR 结构化数据")
+    rule_checks: list[RuleCheckResult] = Field(default_factory=list, description="规则校验结果")
+    agent_invoked: bool = Field(default=False, description="是否触发了 Agent 分析")
+    agent_actions: list[AgentAction] = Field(default_factory=list, description="Agent 工具调用记录")
+    confidence_tier: Literal["T1", "T2", "T3", "T4"] = Field(..., description="置信分层")
+    risk_score: float = Field(default=0.0, ge=0.0, le=100.0, description="风险得分（0-100）")
+    risk_breakdown: dict = Field(
+        default_factory=lambda: {
+            "document_score": 0.0,
+            "behavioral_score": 0.0,
+            "cross_ref_score": 0.0,
+        },
+        description="风险分项得分",
+    )
+    recommended_action: str = Field(default="", description="建议操作")
+    reasoning_chain: str = Field(default="", description="Agent 完整推理链")
+    hash_value: str = Field(default="", description="感知哈希值")
+    duplicate_matches: list[str] = Field(default_factory=list, description="匹配到的历史 receipt_id")
     created_at: datetime = Field(default_factory=datetime.now, description="报告生成时间")
+
+
+# ── 审计日志 ──────────────────────────────────────────────────
 
 
 class AuditLogEntry(BaseModel):

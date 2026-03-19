@@ -1,9 +1,9 @@
 """商户验证子 Agent - 验证发票上的商户信息真实性"""
 
-from concurshield.models.schemas import AgentFinding, OCRResult
+from concurshield.models.schemas import AgentAction, ReceiptData
 
 
-def verify_merchant(ocr_result: OCRResult) -> AgentFinding:
+def verify_merchant(receipt_data: ReceiptData) -> list[AgentAction]:
     """验证商户信息的真实性和一致性。
 
     检查项目：
@@ -13,17 +13,17 @@ def verify_merchant(ocr_result: OCRResult) -> AgentFinding:
     - 是否存在已知的虚假商户模式
 
     Args:
-        ocr_result: OCR 识别结果。
+        receipt_data: OCR 结构化数据。
 
     Returns:
-        商户验证分析结果。
+        Agent 工具调用记录列表。
     """
     pass
 
 
 def check_merchant_consistency(
     merchant_name: str, items: list[str], amount: float
-) -> AgentFinding:
+) -> list[AgentAction]:
     """检查商户名称、消费内容和金额之间的一致性。
 
     Args:
