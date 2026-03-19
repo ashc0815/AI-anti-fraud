@@ -155,7 +155,10 @@ async def extract_receipt(image_path: str | Path) -> ReceiptData:
     media_type = detect_image_type(image_path)
     image_b64 = encode_image_to_base64(image_path)
 
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client_kwargs: dict = {"api_key": settings.ANTHROPIC_API_KEY}
+    if settings.ANTHROPIC_BASE_URL:
+        client_kwargs["base_url"] = settings.ANTHROPIC_BASE_URL
+    client = anthropic.AsyncAnthropic(**client_kwargs)
 
     last_error: Exception | None = None
     for attempt in range(3):

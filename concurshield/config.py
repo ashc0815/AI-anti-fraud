@@ -14,6 +14,7 @@ class Settings:
     """应用配置，从环境变量中读取"""
 
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    ANTHROPIC_BASE_URL: str = os.getenv("ANTHROPIC_BASE_URL", "")
     ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
     DB_PATH: str = os.getenv("DB_PATH", "concurshield.db")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
