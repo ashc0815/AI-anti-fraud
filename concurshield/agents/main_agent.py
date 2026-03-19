@@ -1,5 +1,7 @@
 """Main Agent 编排器 - 协调各子 Agent 完成发票审核流程"""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from concurshield.models.schemas import ForensicReport, ReceiptInput

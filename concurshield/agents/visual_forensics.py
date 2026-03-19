@@ -1,5 +1,7 @@
 """视觉取证子 Agent - 检测发票图片的篡改和伪造痕迹"""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from concurshield.models.schemas import AgentAction

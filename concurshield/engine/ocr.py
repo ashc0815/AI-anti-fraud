@@ -1,5 +1,7 @@
 """Claude Vision OCR 模块 - 使用 Claude 多模态能力提取发票信息"""
 
+from __future__ import annotations
+
 import base64
 import json
 import logging

@@ -1,5 +1,7 @@
 """SQLite 存储层 - 管理发票记录、哈希和风险报告的持久化"""
 
+from __future__ import annotations
+
 from concurshield.models.schemas import AuditLogEntry, ForensicReport
 
 

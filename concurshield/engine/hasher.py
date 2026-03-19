@@ -1,5 +1,7 @@
 """感知哈希与重复检测模块 - 基于图像感知哈希检测重复发票"""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from concurshield.models.schemas import ForensicReport

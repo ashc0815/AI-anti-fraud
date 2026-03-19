@@ -1,5 +1,7 @@
 """元数据分析子 Agent - 分析发票图片的 EXIF 和文件元数据"""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from concurshield.models.schemas import AgentAction
