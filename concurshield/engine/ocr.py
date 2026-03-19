@@ -158,7 +158,7 @@ async def extract_receipt(image_path: str | Path) -> ReceiptData:
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     last_error: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(3):
         if attempt > 0:
             logger.warning("OCR API 调用重试 (第 %d 次)", attempt)
 
