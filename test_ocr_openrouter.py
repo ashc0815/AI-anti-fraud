@@ -69,7 +69,7 @@ def main():
                 verify=False,
             )
             break
-        except (httpx.ConnectError, httpx.ReadError) as e:
+        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
             wait = 2 ** (attempt + 1)
             print(f"连接失败 (第{attempt+1}次): {e}")
             if attempt < 2:
