@@ -158,6 +158,12 @@ async def extract_receipt(image_path: str | Path) -> ReceiptData:
     client_kwargs: dict = {"api_key": settings.ANTHROPIC_API_KEY}
     if settings.ANTHROPIC_BASE_URL:
         client_kwargs["base_url"] = settings.ANTHROPIC_BASE_URL
+        # OpenRouter 等第三方使用 Bearer token 而非 x-api-key
+        # 用占位 key 绕过 SDK 校验，实际认证走 Authorization header
+        client_kwargs["api_key"] = "placeholder"
+        client_kwargs["default_headers"] = {
+            "Authorization": f"Bearer {settings.ANTHROPIC_API_KEY}",
+        }
     client = anthropic.AsyncAnthropic(**client_kwargs)
 
     last_error: Exception | None = None
