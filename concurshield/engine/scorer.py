@@ -82,6 +82,21 @@ def compute_score(
 
     composite = min(composite, 100.0)
 
+    # ── 5b. 严重度升级地板 ───────────────────────────────────────
+    # 某些条件无论加权分多低，都应触发最低等级保障
+    has_warning = any(not r.passed and r.severity == "warning" for r in rule_results)
+    has_critical = any(not r.passed and r.severity == "critical" for r in rule_results)
+    has_high_dup = any(m.get("similarity", 0) > 0.95 for m in duplicate_matches)
+
+    if has_critical and agent_triggered and agent_risk_score > 70:
+        composite = max(composite, 81.0)  # → T4 强制拦截
+    if has_critical or has_high_dup:
+        composite = max(composite, 56.0)  # → T3 需人工审核
+    if has_warning:
+        composite = max(composite, 26.0)  # → T2 低风险提示
+
+    composite = min(composite, 100.0)
+
     # ── 6. Confidence Tier ───────────────────────────────────────
     tier = _score_to_tier(composite)
 
