@@ -3,3 +3,5 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+data/
+test_receipts/hash_test/
