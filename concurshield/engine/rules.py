@@ -93,7 +93,9 @@ def _math_002(receipt: ReceiptData) -> RuleCheckResult:
             rule_id=rule_id, rule_name=rule_name, passed=True,
             severity="info", detail="税额/税率/subtotal 缺失，跳过校验",
         )
-    expected = receipt.subtotal * receipt.tax_rate
+    # tax_rate 可能是百分比（如 6）或小数（如 0.06），统一转为小数
+    rate = receipt.tax_rate if receipt.tax_rate < 1 else receipt.tax_rate / 100
+    expected = receipt.subtotal * rate
     diff = abs(receipt.tax_amount - expected)
     passed = diff <= 0.05
     return RuleCheckResult(
