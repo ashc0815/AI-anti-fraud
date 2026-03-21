@@ -13,9 +13,12 @@ from pathlib import Path
 
 import streamlit as st
 
+import pandas as pd
+
 from concurshield.db import store
 from concurshield.models.schemas import ForensicReport
 from concurshield.pipeline import PipelineError, analyze_receipt
+from demo.behavioral_demo import analyze_behavior, generate_mock_expenses
 
 logger = logging.getLogger(__name__)
 
@@ -97,18 +100,29 @@ def main() -> None:
     # 初始化数据库
     store.init_db()
 
-    # 侧边栏
-    thresholds, hash_threshold, show_audit = render_sidebar()
+    # 顶级页面选择
+    page = st.radio(
+        "Navigate",
+        ["\U0001f4c4 Receipt Analysis", "\U0001f4ca Behavioral Analysis Demo"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
 
-    # 上传区域
-    uploaded_file = render_upload_section()
+    if page.startswith("\U0001f4c4"):
+        # 侧边栏
+        thresholds, hash_threshold, show_audit = render_sidebar()
 
-    # 分析与结果展示
-    if uploaded_file is not None:
-        process_and_render(uploaded_file, thresholds, hash_threshold, show_audit)
+        # 上传区域
+        uploaded_file = render_upload_section()
 
-    # 底部历史记录
-    render_history()
+        # 分析与结果展示
+        if uploaded_file is not None:
+            process_and_render(uploaded_file, thresholds, hash_threshold, show_audit)
+
+        # 底部历史记录
+        render_history()
+    else:
+        render_behavioral_demo()
 
 
 # ── 侧边栏 ────────────────────────────────────────────────────────
@@ -281,7 +295,6 @@ def _render_receipt_data(receipt_data) -> None:
 
     if receipt_data.items:
         st.markdown("**Line Items**")
-        import pandas as pd
         items_data = [
             {
                 "Description": item.description,
@@ -326,8 +339,6 @@ def _render_agent_results(report: ForensicReport) -> None:
 
 def _render_score_breakdown(breakdown: dict, composite: float) -> None:
     """Tab 4: 风险评分分解柱状图。"""
-    import pandas as pd
-
     dimensions = {
         "Document": breakdown.get("document_score", 0) or 0,
         "Behavioral": breakdown.get("behavioral_score", 0) or 0,
@@ -374,7 +385,6 @@ def render_history() -> None:
         st.info("No receipts analyzed yet.")
         return
 
-    import pandas as pd
     df = pd.DataFrame(records)
     df.columns = ["Receipt ID", "Merchant", "Date", "Amount", "Tier", "Score", "Analyzed At"]
 
@@ -389,6 +399,117 @@ def render_history() -> None:
             ),
         },
     )
+
+
+# ── 行为分析 Demo 页面 ─────────────────────────────────────────────
+
+
+_SEVERITY_ICON = {"high": "\U0001f534", "medium": "\U0001f7e1", "low": "\U0001f7e2"}
+
+
+def render_behavioral_demo() -> None:
+    """渲染行为分析 Demo 页面。"""
+    st.subheader("Employee Behavioral Analysis Demo")
+    st.markdown(
+        "Demonstrates ConcurShield's ability to detect **cross-temporal behavioral "
+        "patterns** — not just single-receipt fraud, but systemic anomalies across "
+        "an employee's expense history."
+    )
+
+    employee_id = st.text_input("Employee ID", value="EMP-2025-0042")
+
+    # ── 生成 Mock 数据 ────────────────────────────────────────
+    expenses = generate_mock_expenses(employee_id)
+
+    st.markdown("### Expense Records (30 entries)")
+    df = pd.DataFrame(expenses)
+    display_df = df.drop(columns=["anomaly_label", "employee_id"])
+
+    # 高亮异常行
+    def _highlight_anomalies(row):
+        original = expenses[row.name]
+        if original["anomaly_label"]:
+            return ["background-color: #fff3cd"] * len(row)
+        return [""] * len(row)
+
+    st.dataframe(
+        display_df.style.apply(_highlight_anomalies, axis=1),
+        use_container_width=True,
+        hide_index=True,
+        height=400,
+    )
+
+    anomaly_count = sum(1 for r in expenses if r["anomaly_label"])
+    st.caption(
+        f"Highlighted rows contain planted anomalies ({anomaly_count} of 30). "
+        "The AI analyzer does NOT see these labels."
+    )
+
+    # ── 运行分析 ──────────────────────────────────────────────
+    st.divider()
+
+    if st.button("Run Behavioral Analysis", type="primary", use_container_width=True):
+        with st.spinner("Analyzing behavioral patterns..."):
+            result = analyze_behavior(expenses, employee_id)
+
+        st.session_state["behavioral_result"] = result
+
+    if "behavioral_result" not in st.session_state:
+        return
+
+    result = st.session_state["behavioral_result"]
+
+    # ── 摘要指标 ──────────────────────────────────────────────
+    summary = result.get("employee_summary", {})
+    risk = result.get("overall_risk", "unknown")
+    risk_color = {"high": "red", "medium": "orange", "low": "green"}.get(risk, "gray")
+    findings = result.get("findings", [])
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Records", summary.get("total_records", "?"))
+    col2.metric("Total Amount", f"{summary.get('total_amount', 0):,.0f} CNY")
+    col3.metric("Primary City", summary.get("primary_city", "?"))
+    col4.markdown(
+        f'<div style="background-color:{risk_color};color:white;padding:12px;'
+        f'border-radius:8px;text-align:center;margin-top:24px;">'
+        f'<b>Risk: {risk.upper()}</b></div>',
+        unsafe_allow_html=True,
+    )
+
+    if result.get("_analysis_mode") == "local_fallback":
+        st.info("API unreachable — results generated by local rule-based fallback.")
+
+    # ── Findings ──────────────────────────────────────────────
+    st.markdown("### Findings")
+
+    if not findings:
+        st.success("No anomalies detected.")
+    else:
+        for i, f in enumerate(findings, 1):
+            icon = _SEVERITY_ICON.get(f.get("severity", "low"), "\u2753")
+            severity = f.get("severity", "unknown").upper()
+            ftype = f.get("type", "unknown")
+            with st.expander(
+                f"{icon} Finding {i}: [{severity}] {ftype}",
+                expanded=(f.get("severity") == "high"),
+            ):
+                st.write(f.get("description", ""))
+                st.markdown(f"**Affected Records:** {f.get('affected_records', [])}")
+                st.markdown(f"**Recommendation:** {f.get('recommendation', '')}")
+
+    # ── Reasoning Chain ───────────────────────────────────────
+    st.markdown("### Reasoning Chain")
+    st.text_area(
+        "Full reasoning",
+        result.get("reasoning_chain", ""),
+        height=150,
+        disabled=True,
+        label_visibility="collapsed",
+    )
+
+    # ── Raw JSON ──────────────────────────────────────────────
+    with st.expander("Raw Analysis JSON"):
+        st.json(result)
 
 
 if __name__ == "__main__":
