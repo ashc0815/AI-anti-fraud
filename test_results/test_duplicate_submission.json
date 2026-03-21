@@ -9,13 +9,13 @@
     "tier": "T3",
     "risk_score": 56.0,
     "duplicate_matches": [
-      "27f8d373-8afa-4dc5-98d7-32efd86b19d2"
+      "13e98450-3435-46c3-9a37-989111383833"
     ],
     "duplicate_count": 1
   },
   "passed": true,
   "forensic_report": {
-    "receipt_id": "d623944a-fcc4-4161-bc40-c70b72631213",
+    "receipt_id": "04a48e5f-d00c-4167-9184-6761b7d4c9be",
     "receipt_data": {
       "merchant_name": "Coffee House",
       "merchant_address": "北京市朝阳区",
@@ -107,7 +107,7 @@
         "tool_name": "analyze_visual_integrity",
         "input_summary": "image=test_receipts/duplicates/date_changed_receipt.png",
         "output_summary": "AI generation artifacts detected: uniform noise pattern, perfect alignment, synthetic texture signatures.",
-        "timestamp": "2026-03-21T06:30:37.066454",
+        "timestamp": "2026-03-21T06:37:44.538282",
         "duration_ms": 1200
       },
       {
@@ -115,7 +115,7 @@
         "tool_name": "analyze_metadata",
         "input_summary": "image=test_receipts/duplicates/date_changed_receipt.png",
         "output_summary": "EXIF data missing. No camera/device information. Likely digitally generated.",
-        "timestamp": "2026-03-21T06:30:37.066458",
+        "timestamp": "2026-03-21T06:37:44.538286",
         "duration_ms": 300
       }
     ],
@@ -137,8 +137,8 @@
     "reasoning_chain": "Visual forensics detected AI generation artifacts. Metadata analysis found no EXIF data. Combined evidence strongly suggests this receipt is fabricated.",
     "hash_value": "9f1f8ee2e038e0c3",
     "duplicate_matches": [
-      "27f8d373-8afa-4dc5-98d7-32efd86b19d2"
+      "13e98450-3435-46c3-9a37-989111383833"
     ],
-    "created_at": "2026-03-21T06:30:37.066508"
+    "created_at": "2026-03-21T06:37:44.538337"
   }
 }

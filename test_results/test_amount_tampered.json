@@ -17,7 +17,7 @@
   },
   "passed": true,
   "forensic_report": {
-    "receipt_id": "b8b31543-71f5-4a3a-98d2-fd7c8e65ab84",
+    "receipt_id": "c5856514-0c54-4241-bb5a-160ff444a7ca",
     "receipt_data": {
       "merchant_name": "FakeShop Ltd",
       "merchant_address": "123 Fake St, Sydney",
@@ -109,7 +109,7 @@
         "tool_name": "analyze_visual_integrity",
         "input_summary": "image=test_receipts/tampered/amount_tampered.png",
         "output_summary": "AI generation artifacts detected: uniform noise pattern, perfect alignment, synthetic texture signatures.",
-        "timestamp": "2026-03-21T06:30:35.366542",
+        "timestamp": "2026-03-21T06:37:42.512026",
         "duration_ms": 1200
       },
       {
@@ -117,7 +117,7 @@
         "tool_name": "analyze_metadata",
         "input_summary": "image=test_receipts/tampered/amount_tampered.png",
         "output_summary": "EXIF data missing. No camera/device information. Likely digitally generated.",
-        "timestamp": "2026-03-21T06:30:35.366546",
+        "timestamp": "2026-03-21T06:37:42.512033",
         "duration_ms": 300
       }
     ],
@@ -139,6 +139,6 @@
     "reasoning_chain": "Visual forensics detected AI generation artifacts. Metadata analysis found no EXIF data. Combined evidence strongly suggests this receipt is fabricated.",
     "hash_value": "9f1fe1f81ce0e0c1",
     "duplicate_matches": [],
-    "created_at": "2026-03-21T06:30:35.366588"
+    "created_at": "2026-03-21T06:37:42.512541"
   }
 }

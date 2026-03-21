@@ -14,7 +14,7 @@
   },
   "passed": true,
   "forensic_report": {
-    "receipt_id": "24bf68f5-a831-462e-9f7b-0a88407ee28e",
+    "receipt_id": "081a97c6-d79c-4678-a612-f2a4e6633ff9",
     "receipt_data": {
       "merchant_name": "星巴克（南京西路店）",
       "merchant_address": "上海市静安区南京西路 1266 号",
@@ -119,6 +119,6 @@
     "reasoning_chain": "",
     "hash_value": "9dc660ce161d29cf",
     "duplicate_matches": [],
-    "created_at": "2026-03-21T06:30:35.357899"
+    "created_at": "2026-03-21T06:37:42.495923"
   }
 }
