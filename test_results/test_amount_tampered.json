@@ -1,0 +1,144 @@
+{
+  "test_name": "test_amount_tampered",
+  "input_description": "金额篡改收据（行项合计35, total写135）",
+  "expected": {
+    "tier": ">=T3",
+    "math_failed": true,
+    "agent_invoked": true
+  },
+  "actual": {
+    "tier": "T4",
+    "math_failed": true,
+    "agent_invoked": true,
+    "risk_score": 81.0,
+    "failed_rules": [
+      "MATH_003"
+    ]
+  },
+  "passed": true,
+  "forensic_report": {
+    "receipt_id": "b8b31543-71f5-4a3a-98d2-fd7c8e65ab84",
+    "receipt_data": {
+      "merchant_name": "FakeShop Ltd",
+      "merchant_address": "123 Fake St, Sydney",
+      "merchant_country": "AU",
+      "date": "2026-03-21",
+      "currency": "AUD",
+      "items": [
+        {
+          "description": "Widget",
+          "quantity": 1.0,
+          "unit_price": 10.0,
+          "amount": 10.0
+        },
+        {
+          "description": "Gadget",
+          "quantity": 1.0,
+          "unit_price": 25.0,
+          "amount": 25.0
+        }
+      ],
+      "subtotal": 35.0,
+      "tax_amount": 3.5,
+      "tax_rate": 0.1,
+      "total": 135.0,
+      "raw_text": "FakeShop Ltd\nWidget $10\nGadget $25\nSubtotal $35\nGST $3.50\nTOTAL $135.00"
+    },
+    "rule_checks": [
+      {
+        "rule_id": "MATH_001",
+        "rule_name": "行项加总校验",
+        "passed": true,
+        "severity": "info",
+        "detail": "行项合计=35.00, subtotal=35.00, 差额=0.00"
+      },
+      {
+        "rule_id": "MATH_002",
+        "rule_name": "税额校验",
+        "passed": true,
+        "severity": "info",
+        "detail": "tax_amount=3.50, expected=3.50, 差额=0.00"
+      },
+      {
+        "rule_id": "MATH_003",
+        "rule_name": "总额校验",
+        "passed": false,
+        "severity": "critical",
+        "detail": "total=135.00, subtotal+tax=38.50, 差额=96.50"
+      },
+      {
+        "rule_id": "MATH_004",
+        "rule_name": "货币与国家一致性",
+        "passed": true,
+        "severity": "info",
+        "detail": "国家=AU, 货币=AUD, 预期=AUD"
+      },
+      {
+        "rule_id": "AMOUNT_001",
+        "rule_name": "单笔金额异常",
+        "passed": true,
+        "severity": "info",
+        "detail": "所有行项金额正常"
+      },
+      {
+        "rule_id": "DATE_001",
+        "rule_name": "日期合理性",
+        "passed": true,
+        "severity": "info",
+        "detail": "日期 2026-03-21 在合理范围内"
+      },
+      {
+        "rule_id": "AU_GST_001",
+        "rule_name": "GST 税率校验",
+        "passed": true,
+        "severity": "info",
+        "detail": "税率=0.1（≈10%），有效值=[0, 10]"
+      },
+      {
+        "rule_id": "AU_ABN_001",
+        "rule_name": "ABN 格式校验",
+        "passed": true,
+        "severity": "info",
+        "detail": "raw_text 中未发现 ABN"
+      }
+    ],
+    "agent_invoked": true,
+    "agent_actions": [
+      {
+        "agent_name": "visual_forensics",
+        "tool_name": "analyze_visual_integrity",
+        "input_summary": "image=test_receipts/tampered/amount_tampered.png",
+        "output_summary": "AI generation artifacts detected: uniform noise pattern, perfect alignment, synthetic texture signatures.",
+        "timestamp": "2026-03-21T06:30:35.366542",
+        "duration_ms": 1200
+      },
+      {
+        "agent_name": "metadata_agent",
+        "tool_name": "analyze_metadata",
+        "input_summary": "image=test_receipts/tampered/amount_tampered.png",
+        "output_summary": "EXIF data missing. No camera/device information. Likely digitally generated.",
+        "timestamp": "2026-03-21T06:30:35.366546",
+        "duration_ms": 300
+      }
+    ],
+    "confidence_tier": "T4",
+    "risk_score": 81.0,
+    "risk_breakdown": {
+      "document_score": 35.0,
+      "behavioral_score": 0.0,
+      "cross_ref_score": 0.0,
+      "agent_score": 90.0,
+      "weights_used": {
+        "document": 0.3,
+        "behavioral": 0.1,
+        "cross_ref": 0.2,
+        "agent": 0.4
+      }
+    },
+    "recommended_action": "强制拦截。报销单已自动退回。合规团队已收到通知。证据包已生成。",
+    "reasoning_chain": "Visual forensics detected AI generation artifacts. Metadata analysis found no EXIF data. Combined evidence strongly suggests this receipt is fabricated.",
+    "hash_value": "9f1fe1f81ce0e0c1",
+    "duplicate_matches": [],
+    "created_at": "2026-03-21T06:30:35.366588"
+  }
+}
