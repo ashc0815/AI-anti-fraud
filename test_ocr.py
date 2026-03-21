@@ -1,20 +1,37 @@
 import asyncio
+import json
+
 from concurshield.engine.ocr import extract_receipt
 
+
 async def test():
-    result = await extract_receipt("test_receipts/normal/test发票.jpg")
-    print(f"商户名: {result.merchant_name}")
-    print(f"国家: {result.merchant_country}")
-    print(f"日期: {result.date}")
-    print(f"货币: {result.currency}")
-    print(f"行项数: {len(result.items)}")
-    for item in result.items:
-        print(f"  - {item.description}: {item.amount}")
-    print(f"总额: {result.total}")
-    print(f"税额: {result.tax_amount}")
-    print(f"税率: {result.tax_rate}")
-    print(f"原始文本长度: {len(result.raw_text)} chars")
-    print(f"JSON 序列化: {len(result.model_dump_json())} chars")
-    print("OCR 验收通过！")
+    image_path = "test_receipts/normal/test发票.jpg"
+    print(f"正在识别: {image_path}\n")
+
+    result = await extract_receipt(image_path)
+
+    # 输出结构化 JSON
+    structured = {
+        "商户名": result.merchant_name,
+        "国家": result.merchant_country,
+        "日期": result.date,
+        "货币": result.currency,
+        "行项明细": [
+            {
+                "描述": item.description,
+                "数量": item.quantity,
+                "单价": item.unit_price,
+                "金额": item.amount,
+            }
+            for item in result.items
+        ],
+        "总额": result.total,
+        "税额": result.tax_amount,
+        "税率": result.tax_rate,
+    }
+
+    print(json.dumps(structured, ensure_ascii=False, indent=2))
+    print("\nOCR 验收通过！")
+
 
 asyncio.run(test())
