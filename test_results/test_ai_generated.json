@@ -18,7 +18,7 @@
   },
   "passed": true,
   "forensic_report": {
-    "receipt_id": "336b2cab-3bba-46c2-aa83-d096195d1ca1",
+    "receipt_id": "5ba715fe-25ad-4f8e-81dd-92592a695596",
     "receipt_data": {
       "merchant_name": "TotallyReal Store",
       "merchant_address": "456 Main St, New York",
@@ -97,7 +97,7 @@
         "tool_name": "analyze_visual_integrity",
         "input_summary": "image=test_receipts/ai_generated/ai_receipt.png",
         "output_summary": "AI generation artifacts detected: uniform noise pattern, perfect alignment, synthetic texture signatures.",
-        "timestamp": "2026-03-21T06:42:12.396270",
+        "timestamp": "2026-03-21T06:52:20.312199",
         "duration_ms": 1200
       },
       {
@@ -105,7 +105,7 @@
         "tool_name": "analyze_metadata",
         "input_summary": "image=test_receipts/ai_generated/ai_receipt.png",
         "output_summary": "EXIF data missing. No camera/device information. Likely digitally generated.",
-        "timestamp": "2026-03-21T06:42:12.396273",
+        "timestamp": "2026-03-21T06:52:20.312204",
         "duration_ms": 300
       }
     ],
@@ -127,6 +127,6 @@
     "reasoning_chain": "Visual forensics detected AI generation artifacts. Metadata analysis found no EXIF data. Combined evidence strongly suggests this receipt is fabricated.",
     "hash_value": "9f1fc0f038e0e1e3",
     "duplicate_matches": [],
-    "created_at": "2026-03-21T06:42:12.396316"
+    "created_at": "2026-03-21T06:52:20.312248"
   }
 }
