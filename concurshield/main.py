@@ -9,19 +9,13 @@ import asyncio
 import json
 import logging
 import tempfile
-import uuid
 from pathlib import Path
 
 import streamlit as st
 
-from concurshield.agents.main_agent import investigate
 from concurshield.db import store
-from concurshield.engine.hasher import compute_hash, find_duplicates
-from concurshield.engine.ocr import extract_receipt
-from concurshield.engine.rules import has_anomaly, run_rules
-from concurshield.engine.scorer import compute_score, generate_recommendation
 from concurshield.models.schemas import ForensicReport
-from concurshield.utils.audit_trail import AuditTrail
+from concurshield.pipeline import PipelineError, analyze_receipt
 
 logger = logging.getLogger(__name__)
 
@@ -168,11 +162,10 @@ def process_and_render(
     hash_threshold: float,
     show_audit: bool,
 ) -> None:
-    """用户上传图片后的完整处理流程。"""
+    """用户上传图片后的完整处理流程（委托给 pipeline）。"""
     # 避免重复处理：缓存用 file name + size 做 key
     cache_key = f"{uploaded_file.name}_{uploaded_file.size}"
     if st.session_state.get("_last_cache_key") == cache_key:
-        # 已处理过，直接渲染缓存结果
         _render_results(st.session_state["_last_report"], show_audit)
         return
 
@@ -182,101 +175,25 @@ def process_and_render(
         tmp.write(uploaded_file.getvalue())
         image_path = tmp.name
 
-    receipt_id = str(uuid.uuid4())
-    audit = AuditTrail(receipt_id)
-
-    # ── Step 1: 感知哈希 + 查重 ──────────────────────────────────
-    with st.spinner("Step 1/6: Computing perceptual hash..."):
-        image_hash = compute_hash(image_path)
-        duplicate_matches = find_duplicates(image_hash, threshold=hash_threshold)
-        audit.log_step(
-            "hash_and_dedup",
-            input_data=image_path,
-            output_data=f"hash={image_hash}, duplicates={len(duplicate_matches)}",
-            duration_ms=0,
-        )
-
-    # ── Step 2: Claude Vision OCR ────────────────────────────────
-    with st.spinner("Step 2/6: OCR extracting receipt data (Claude Vision)..."):
+    # ── 调用统一管道 ─────────────────────────────────────────────
+    with st.spinner("Analyzing receipt (hash → OCR → rules → agent → scoring → save)..."):
         try:
-            receipt_data = _run_async(extract_receipt(image_path))
-            audit.log_step(
-                "ocr",
-                input_data=image_path,
-                output_data=f"merchant={receipt_data.merchant_name}, total={receipt_data.total}",
-                duration_ms=0,
+            report, audit = _run_async(
+                analyze_receipt(image_path, hash_threshold=hash_threshold)
             )
-        except Exception as e:
-            st.error(f"OCR failed: {e}")
+        except PipelineError as e:
+            st.error(f"Pipeline failed at step **{e.step}**: {e.cause}")
             return
-
-    # ── Step 3: Rule Engine ──────────────────────────────────────
-    with st.spinner("Step 3/6: Running rule checks..."):
-        rule_results = run_rules(receipt_data)
-        for r in rule_results:
-            audit.log_rule_check(r)
-
-    # ── Step 4: Agent Investigation (if anomaly) ─────────────────
-    agent_invoked = False
-    agent_actions = []
-    reasoning_chain = ""
-    agent_risk_score = None
-
-    if has_anomaly(rule_results):
-        agent_invoked = True
-        with st.spinner("Step 4/6: Agent investigation in progress..."):
-            try:
-                agent_actions, reasoning_chain, agent_risk_score = _run_async(
-                    investigate(image_path, receipt_data, rule_results, audit)
-                )
-            except Exception as e:
-                st.warning(f"Agent investigation error: {e}")
-                reasoning_chain = f"Agent error: {e}"
-    else:
-        audit.log_step("agent_skip", input_data="no anomaly", output_data="skipped", duration_ms=0)
-
-    # ── Step 5: Composite Scoring ────────────────────────────────
-    with st.spinner("Step 5/6: Computing risk score..."):
-        composite_score, tier, breakdown = compute_score(
-            rule_results, agent_risk_score, duplicate_matches,
-        )
-
-    # ── Build ForensicReport ─────────────────────────────────────
-    report = ForensicReport(
-        receipt_id=receipt_id,
-        receipt_data=receipt_data,
-        rule_checks=rule_results,
-        agent_invoked=agent_invoked,
-        agent_actions=agent_actions,
-        confidence_tier=tier,
-        risk_score=composite_score,
-        risk_breakdown=breakdown,
-        recommended_action=generate_recommendation(
-            ForensicReport(
-                receipt_id=receipt_id,
-                receipt_data=receipt_data,
-                rule_checks=rule_results,
-                confidence_tier=tier,
-                risk_score=composite_score,
-            )
-        ),
-        reasoning_chain=reasoning_chain,
-        hash_value=image_hash,
-        duplicate_matches=[m["receipt_id"] for m in duplicate_matches],
-    )
-
-    audit.log_decision(tier, composite_score, reasoning_chain)
-
-    # ── Step 6: Save to SQLite ───────────────────────────────────
-    with st.spinner("Step 6/6: Saving to database..."):
-        store.save_receipt(receipt_id, image_hash, receipt_data, report)
+        except Exception as e:
+            st.error(f"Unexpected error: {e}")
+            return
 
     # Cache results
     st.session_state["_last_cache_key"] = cache_key
     st.session_state["_last_report"] = {
         "report": report,
         "audit_md": audit.export_markdown(),
-        "breakdown": breakdown,
+        "breakdown": report.risk_breakdown,
     }
 
     _render_results(st.session_state["_last_report"], show_audit)
