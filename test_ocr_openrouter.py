@@ -11,8 +11,8 @@ import httpx
 from concurshield.engine.ocr import _SYSTEM_PROMPT, _parse_response_json, _validate_receipt_data
 from concurshield.models.schemas import ReceiptData
 
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL = os.environ.get("ANTHROPIC_MODEL", "anthropic/claude-sonnet-4-20250514")
+API_KEY = os.environ.get("OPENAI_API_KEY", "")
+MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 IMAGE_PATH = "test_receipts/normal/test发票.jpg"
 
 

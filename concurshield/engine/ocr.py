@@ -1,4 +1,4 @@
-"""Claude Vision OCR 模块 - 使用 Claude 多模态能力提取发票信息"""
+"""Vision OCR 模块 - 使用 OpenAI GPT-4o 多模态能力提取发票信息"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import anthropic
+import openai
 
 from concurshield.config import settings
 from concurshield.models.schemas import ReceiptData
@@ -165,16 +165,10 @@ async def extract_receipt(image_path: str | Path) -> ReceiptData:
     media_type = detect_image_type(image_path)
     image_b64 = encode_image_to_base64(image_path)
 
-    client_kwargs: dict = {"api_key": settings.ANTHROPIC_API_KEY}
-    if settings.ANTHROPIC_BASE_URL:
-        client_kwargs["base_url"] = settings.ANTHROPIC_BASE_URL
-        # OpenRouter 等第三方使用 Bearer token 而非 x-api-key
-        # 用占位 key 绕过 SDK 校验，实际认证走 Authorization header
-        client_kwargs["api_key"] = "placeholder"
-        client_kwargs["default_headers"] = {
-            "Authorization": f"Bearer {settings.ANTHROPIC_API_KEY}",
-        }
-    client = anthropic.AsyncAnthropic(**client_kwargs)
+    client_kwargs: dict = {"api_key": settings.OPENAI_API_KEY}
+    if settings.OPENAI_BASE_URL:
+        client_kwargs["base_url"] = settings.OPENAI_BASE_URL
+    client = openai.AsyncOpenAI(**client_kwargs)
 
     last_error: Exception | None = None
     for attempt in range(3):
@@ -183,20 +177,18 @@ async def extract_receipt(image_path: str | Path) -> ReceiptData:
 
         start = time.monotonic()
         try:
-            response = await client.messages.create(
-                model=settings.ANTHROPIC_MODEL,
+            response = await client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
                 max_tokens=4096,
-                system=_SYSTEM_PROMPT,
                 messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
                     {
                         "role": "user",
                         "content": [
                             {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_b64,
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{media_type};base64,{image_b64}",
                                 },
                             },
                             {
@@ -204,25 +196,23 @@ async def extract_receipt(image_path: str | Path) -> ReceiptData:
                                 "text": "请提取这张收据/发票中的所有信息，按要求的 JSON 格式返回。",
                             },
                         ],
-                    }
+                    },
                 ],
             )
             duration_ms = int((time.monotonic() - start) * 1000)
-            logger.info("Claude OCR 调用完成，耗时 %d ms", duration_ms)
+            logger.info("OpenAI OCR 调用完成，耗时 %d ms", duration_ms)
             break
-        except anthropic.APIError as e:
+        except openai.APIError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
-            logger.error("Claude API 调用失败 (耗时 %d ms): %s", duration_ms, e)
+            logger.error("OpenAI API 调用失败 (耗时 %d ms): %s", duration_ms, e)
             last_error = e
     else:
-        raise OCRError(f"Claude API 调用连续失败: {last_error}")
+        raise OCRError(f"OpenAI API 调用连续失败: {last_error}")
 
     # 提取文本内容
-    text_content = "".join(
-        block.text for block in response.content if block.type == "text"
-    )
+    text_content = response.choices[0].message.content or ""
     if not text_content.strip():
-        raise OCRError("Claude 返回了空内容")
+        raise OCRError("OpenAI 返回了空内容")
 
     parsed = _parse_response_json(text_content)
     receipt_data = ReceiptData.model_validate(parsed)

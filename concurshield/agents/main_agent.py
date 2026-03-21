@@ -11,7 +11,7 @@ import json
 import logging
 import time
 
-import anthropic
+import openai
 
 from concurshield.agents.merchant_verify import verify_merchant
 from concurshield.agents.metadata_agent import analyze_metadata
@@ -173,25 +173,21 @@ async def _judge_with_llm(
 
     start = time.monotonic()
     try:
-        client_kwargs: dict = {"api_key": settings.ANTHROPIC_API_KEY}
-        if settings.ANTHROPIC_BASE_URL:
-            client_kwargs["api_key"] = "placeholder"
-            client_kwargs["base_url"] = settings.ANTHROPIC_BASE_URL
-            client_kwargs["default_headers"] = {
-                "Authorization": f"Bearer {settings.ANTHROPIC_API_KEY}",
-            }
-        client = anthropic.AsyncAnthropic(**client_kwargs)
+        client_kwargs: dict = {"api_key": settings.OPENAI_API_KEY}
+        if settings.OPENAI_BASE_URL:
+            client_kwargs["base_url"] = settings.OPENAI_BASE_URL
+        client = openai.AsyncOpenAI(**client_kwargs)
 
-        response = await client.messages.create(
-            model=settings.ANTHROPIC_MODEL,
+        response = await client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
             max_tokens=1024,
-            system=_JUDGE_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": evidence_text}],
+            messages=[
+                {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
+                {"role": "user", "content": evidence_text},
+            ],
         )
 
-        text = "".join(
-            block.text for block in response.content if block.type == "text"
-        )
+        text = response.choices[0].message.content or ""
         duration_ms = int((time.monotonic() - start) * 1000)
 
         # 解析 JSON

@@ -104,18 +104,20 @@ def test_validate_receipt_data():
 def test_extract_receipt_e2e():
     """端到端 mock 测试：模拟完整的 API 调用流程"""
 
-    # 构造模拟的 Claude API 响应
-    mock_text_block = MagicMock()
-    mock_text_block.type = "text"
-    mock_text_block.text = MOCK_CLAUDE_RESPONSE
+    # 构造模拟的 OpenAI API 响应
+    mock_message = MagicMock()
+    mock_message.content = MOCK_CLAUDE_RESPONSE
+
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
 
     mock_response = MagicMock()
-    mock_response.content = [mock_text_block]
+    mock_response.choices = [mock_choice]
 
     mock_client = MagicMock()
-    mock_client.messages.create = AsyncMock(return_value=mock_response)
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-    with patch("concurshield.engine.ocr.anthropic.AsyncAnthropic", return_value=mock_client), \
+    with patch("concurshield.engine.ocr.openai.AsyncOpenAI", return_value=mock_client), \
          patch("concurshield.engine.ocr.encode_image_to_base64", return_value="fake_b64"), \
          patch("concurshield.engine.ocr.detect_image_type", return_value="image/jpeg"):
 
@@ -152,18 +154,18 @@ def test_extract_receipt_e2e():
 
 def test_extract_receipt_api_failure():
     """测试 API 失败后重试并最终抛出异常"""
-    import anthropic as anthropic_mod
+    import openai as openai_mod
 
     mock_client = MagicMock()
-    mock_client.messages.create = AsyncMock(
-        side_effect=anthropic_mod.APIError(
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=openai_mod.APIError(
             message="server error",
             request=MagicMock(),
             body=None,
         )
     )
 
-    with patch("concurshield.engine.ocr.anthropic.AsyncAnthropic", return_value=mock_client), \
+    with patch("concurshield.engine.ocr.openai.AsyncOpenAI", return_value=mock_client), \
          patch("concurshield.engine.ocr.encode_image_to_base64", return_value="fake_b64"), \
          patch("concurshield.engine.ocr.detect_image_type", return_value="image/jpeg"):
         try:
@@ -173,7 +175,7 @@ def test_extract_receipt_api_failure():
             assert "连续失败" in str(e)
 
     # 验证重试了 3 次（1 次 + 2 次重试）
-    assert mock_client.messages.create.call_count == 3
+    assert mock_client.chat.completions.create.call_count == 3
     print("[PASS] extract_receipt API 重试机制")
 
 

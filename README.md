@@ -58,7 +58,7 @@ pip install -r requirements.txt
 
 # 4. 配置 API Key
 cp .env.example .env
-# 编辑 .env 填入你的 ANTHROPIC_API_KEY
+# 编辑 .env 填入你的 OPENAI_API_KEY
 
 # 5. 启动应用
 streamlit run concurshield/main.py
@@ -76,8 +76,8 @@ pytest concurshield/tests/ -v
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `ANTHROPIC_API_KEY` | Anthropic API 密钥 | （必填） |
-| `ANTHROPIC_MODEL` | 使用的 Claude 模型 | `claude-sonnet-4-20250514` |
+| `OPENAI_API_KEY` | OpenAI API 密钥 | （必填） |
+| `OPENAI_MODEL` | 使用的 OpenAI 模型 | `gpt-4o` |
 | `DB_PATH` | SQLite 数据库路径 | `concurshield.db` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `DUPLICATE_HASH_THRESHOLD` | 重复检测哈希距离阈值 | `10` |
