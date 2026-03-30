@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ConcurShield Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d29; --surface2: #242736;
+    --border: #2e3144; --text: #e4e4e7; --text2: #9ca3af;
+    --blue: #3b82f6; --green: #22c55e; --yellow: #eab308;
+    --orange: #f97316; --red: #ef4444; --purple: #a855f7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.6; }
+
+  /* Layout */
+  .header { background: var(--surface); border-bottom: 1px solid var(--border);
+            padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { font-size: 20px; font-weight: 700; }
+  .header .badge { background: var(--blue); color: #fff; font-size: 11px;
+                   padding: 2px 8px; border-radius: 10px; }
+  .tabs { display: flex; gap: 0; background: var(--surface);
+          border-bottom: 1px solid var(--border); padding: 0 24px; }
+  .tab { padding: 12px 20px; cursor: pointer; color: var(--text2);
+         border-bottom: 2px solid transparent; transition: all 0.2s;
+         font-size: 14px; user-select: none; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .content { padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .card h3 { font-size: 16px; margin-bottom: 12px; color: var(--text); }
+
+  /* Risk table */
+  .risk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .risk-table th { text-align: left; padding: 10px 12px; color: var(--text2);
+                   border-bottom: 1px solid var(--border); font-weight: 500; }
+  .risk-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .risk-table tr { cursor: pointer; transition: background 0.15s; }
+  .risk-table tr:hover { background: var(--surface2); }
+  .risk-table tr.selected { background: rgba(59,130,246,0.1); }
+
+  .score-bar { width: 120px; height: 6px; background: var(--surface2);
+               border-radius: 3px; overflow: hidden; display: inline-block;
+               vertical-align: middle; margin-right: 8px; }
+  .score-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .score-val { font-weight: 600; font-size: 13px; }
+
+  .badge-normal { background: rgba(34,197,94,0.15); color: var(--green);
+                  padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+  .badge-elevated { background: rgba(234,179,8,0.15); color: var(--yellow);
+                    padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+  .badge-high { background: rgba(239,68,68,0.15); color: var(--red);
+                padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+
+  /* Investigation controls */
+  .inv-controls { display: flex; gap: 12px; align-items: center;
+                  margin-bottom: 20px; flex-wrap: wrap; }
+  .inv-controls input, .inv-controls select {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 12px; border-radius: 6px;
+    font-size: 13px; outline: none; }
+  .inv-controls input:focus, .inv-controls select:focus { border-color: var(--blue); }
+  .btn { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer;
+         font-size: 13px; font-weight: 600; transition: all 0.2s; }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm { padding: 4px 12px; font-size: 12px; }
+
+  /* Investigation stream */
+  .inv-stream { background: var(--surface); border: 1px solid var(--border);
+                border-radius: 8px; min-height: 200px; max-height: 600px;
+                overflow-y: auto; padding: 20px; font-size: 13px; }
+  .inv-stream:empty::after { content: "Select an employee and click 'Start Investigation' to begin.";
+                             color: var(--text2); font-style: italic; }
+  .inv-round { margin-bottom: 16px; padding-bottom: 16px;
+               border-bottom: 1px solid var(--border); }
+  .inv-round:last-child { border-bottom: none; margin-bottom: 0; }
+  .round-header { font-weight: 600; font-size: 14px; color: var(--blue);
+                  margin-bottom: 8px; }
+  .reasoning { color: var(--text2); white-space: pre-wrap; margin-bottom: 8px;
+               padding-left: 12px; border-left: 2px solid var(--border); }
+  .tool-call { color: var(--blue); margin: 6px 0; display: flex;
+               align-items: center; gap: 6px; }
+  .tool-call .icon { font-size: 14px; }
+  .finding { margin: 6px 0; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+  .finding.positive { background: rgba(34,197,94,0.1); color: var(--green);
+                      border-left: 3px solid var(--green); }
+  .finding.negative { background: rgba(239,68,68,0.1); color: var(--red);
+                      border-left: 3px solid var(--red); }
+  .finding.neutral { background: rgba(59,130,246,0.1); color: var(--blue);
+                     border-left: 3px solid var(--blue); }
+  .spinner { display: inline-block; width: 14px; height: 14px;
+             border: 2px solid var(--border); border-top-color: var(--blue);
+             border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Report */
+  .report-section { margin-top: 24px; }
+  .hypothesis-card { background: var(--surface2); border-radius: 6px;
+                     padding: 14px; margin-bottom: 10px; }
+  .hypothesis-card h4 { font-size: 14px; margin-bottom: 6px; display: flex;
+                        align-items: center; gap: 8px; }
+  .confidence-bar { width: 80px; height: 4px; background: var(--border);
+                    border-radius: 2px; display: inline-block; }
+  .confidence-fill { height: 100%; border-radius: 2px; }
+  .evidence-list { font-size: 12px; margin-top: 6px; }
+  .evidence-list li { margin: 3px 0; padding-left: 6px; }
+  .evidence-support { color: var(--green); }
+  .evidence-contra { color: var(--red); }
+  .action-item { display: flex; gap: 10px; align-items: flex-start;
+                 padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .action-item:last-child { border-bottom: none; }
+  .priority-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px;
+                    font-weight: 600; white-space: nowrap; }
+  .priority-high { background: rgba(239,68,68,0.15); color: var(--red); }
+  .priority-medium { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .priority-low { background: rgba(34,197,94,0.15); color: var(--green); }
+  .beyond-item { color: var(--red); font-size: 13px; padding: 4px 0; }
+  .tier-badge { display: inline-block; padding: 4px 14px; border-radius: 6px;
+                font-size: 16px; font-weight: 700; }
+  .tier-T1 { background: rgba(34,197,94,0.15); color: var(--green); }
+  .tier-T2 { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .tier-T3 { background: rgba(249,115,22,0.15); color: var(--orange); }
+  .tier-T4 { background: rgba(239,68,68,0.15); color: var(--red); }
+
+  /* History */
+  .history-item { display: flex; gap: 16px; align-items: center;
+                  padding: 12px; cursor: pointer; transition: background 0.15s; }
+  .history-item:hover { background: var(--surface2); }
+  .history-meta { flex: 1; }
+  .history-meta .emp { font-weight: 600; }
+  .history-meta .summary { font-size: 12px; color: var(--text2);
+                           margin-top: 2px; overflow: hidden;
+                           text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
+  .history-meta .time { font-size: 11px; color: var(--text2); }
+
+  /* Progress bar */
+  .progress { width: 100%; height: 4px; background: var(--surface2);
+              border-radius: 2px; margin: 8px 0; }
+  .progress-fill { height: 100%; background: var(--blue); border-radius: 2px;
+                   transition: width 0.3s; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>ConcurShield</h1>
+  <span class="badge">Eval Dashboard</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-panel="investigation">Investigation</div>
+  <div class="tab" data-panel="history">History</div>
+</div>
+
+<div class="content">
+  <!-- ═══ Investigation Panel ═══ -->
+  <div class="panel active" id="panel-investigation">
+    <div class="card">
+      <h3>Employee Risk Ranking</h3>
+      <table class="risk-table">
+        <thead>
+          <tr><th>Employee</th><th>Risk Score</th><th>Classification</th><th>Top Risk Factor</th><th></th></tr>
+        </thead>
+        <tbody id="risk-table-body"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Start Investigation</h3>
+      <div class="inv-controls">
+        <input type="text" id="inv-employee" placeholder="Employee ID (e.g. EMP-018)" style="width:200px">
+        <button class="btn btn-primary" id="btn-investigate" onclick="startInvestigation()">
+          Start Investigation
+        </button>
+        <span id="inv-status-text" style="color:var(--text2);font-size:13px"></span>
+      </div>
+      <div class="progress" id="inv-progress" style="display:none">
+        <div class="progress-fill" id="inv-progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <div class="card" id="stream-card" style="display:none">
+      <h3 id="stream-title">Investigation Stream</h3>
+      <div class="inv-stream" id="inv-stream"></div>
+    </div>
+
+    <div id="report-container" style="display:none"></div>
+  </div>
+
+  <!-- ═══ History Panel ═══ -->
+  <div class="panel" id="panel-history">
+    <div class="card">
+      <h3>Investigation History</h3>
+      <div id="history-list">
+        <p style="color:var(--text2);font-size:13px;padding:20px;text-align:center">
+          No investigations yet. Start one from the Investigation tab.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// Tab switching
+// ═══════════════════════════════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+    if (tab.dataset.panel === 'history') loadHistory();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Load risk scores
+// ═══════════════════════════════════════════════════════════════════════
+async function loadRiskScores() {
+  try {
+    const res = await fetch('/api/risk-scores');
+    const scores = await res.json();
+    const tbody = document.getElementById('risk-table-body');
+    tbody.innerHTML = '';
+    scores.forEach(s => {
+      const color = s.total_score > 60 ? 'var(--red)' :
+                    s.total_score > 30 ? 'var(--yellow)' : 'var(--green)';
+      const badgeCls = 'badge-' + s.classification;
+      const factor = s.top_risk_factors[0] || '-';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${s.employee_id}</strong></td>
+        <td>
+          <span class="score-bar"><span class="score-bar-fill" style="width:${s.total_score}%;background:${color}"></span></span>
+          <span class="score-val" style="color:${color}">${s.total_score}</span>
+        </td>
+        <td><span class="${badgeCls}">${s.classification}</span></td>
+        <td style="font-size:12px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${factor}</td>
+        <td><button class="btn btn-sm btn-primary" onclick="selectEmployee('${s.employee_id}');event.stopPropagation()">Investigate</button></td>
+      `;
+      tr.addEventListener('click', () => selectEmployee(s.employee_id));
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    console.error('Failed to load risk scores:', e);
+  }
+}
+
+function selectEmployee(eid) {
+  document.getElementById('inv-employee').value = eid;
+  document.querySelectorAll('.risk-table tr').forEach(tr => tr.classList.remove('selected'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Start investigation
+// ═══════════════════════════════════════════════════════════════════════
+let currentInvId = null;
+let eventSource = null;
+
+async function startInvestigation() {
+  const employeeId = document.getElementById('inv-employee').value.trim();
+  if (!employeeId) { alert('Please enter an Employee ID'); return; }
+
+  const btn = document.getElementById('btn-investigate');
+  btn.disabled = true;
+  document.getElementById('inv-status-text').textContent = 'Starting...';
+  document.getElementById('inv-progress').style.display = 'block';
+  document.getElementById('inv-progress-fill').style.width = '5%';
+  document.getElementById('stream-card').style.display = 'block';
+  document.getElementById('inv-stream').innerHTML = '';
+  document.getElementById('report-container').style.display = 'none';
+  document.getElementById('stream-title').textContent = `Investigating ${employeeId}...`;
+
+  try {
+    const res = await fetch('/api/investigate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: employeeId }),
+    });
+    const data = await res.json();
+    currentInvId = data.investigation_id;
+    connectSSE(currentInvId);
+  } catch (e) {
+    console.error('Failed to start investigation:', e);
+    btn.disabled = false;
+    document.getElementById('inv-status-text').textContent = 'Failed to start';
+  }
+}
+
+function connectSSE(invId) {
+  if (eventSource) eventSource.close();
+
+  // Use polling fallback since Flask dev server may not support SSE well
+  pollInvestigation(invId);
+}
+
+async function pollInvestigation(invId) {
+  let lastEventIdx = 0;
+  const stream = document.getElementById('inv-stream');
+  const progressFill = document.getElementById('inv-progress-fill');
+  const statusText = document.getElementById('inv-status-text');
+
+  const poll = async () => {
+    try {
+      const res = await fetch(`/api/investigate/${invId}/status`);
+      const data = await res.json();
+
+      progressFill.style.width = data.progress + '%';
+      statusText.textContent = `Round ${data.current_round} / ${data.total_rounds || '?'} — ${data.status}`;
+
+      // Render new events
+      while (lastEventIdx < data.events.length) {
+        const evt = data.events[lastEventIdx];
+        renderEvent(stream, evt);
+        lastEventIdx++;
+      }
+      stream.scrollTop = stream.scrollHeight;
+
+      if (data.status === 'completed') {
+        progressFill.style.width = '100%';
+        statusText.textContent = 'Investigation complete';
+        document.getElementById('btn-investigate').disabled = false;
+        document.getElementById('stream-title').textContent =
+          `Investigation Complete — ${data.report?.employee_id || invId}`;
+        if (data.report) renderReport(data.report);
+        return;
+      }
+      if (data.status === 'failed') {
+        statusText.textContent = 'Investigation failed';
+        document.getElementById('btn-investigate').disabled = false;
+        return;
+      }
+      setTimeout(() => poll(), 500);
+    } catch (e) {
+      console.error('Poll error:', e);
+      setTimeout(() => poll(), 1000);
+    }
+  };
+  poll();
+}
+
+function renderEvent(container, evt) {
+  const { type, data } = evt;
+  let el;
+
+  switch (type) {
+    case 'reasoning':
+      el = document.createElement('div');
+      el.className = 'inv-round';
+      el.innerHTML = `
+        <div class="round-header">Round ${data.round}</div>
+        <div class="reasoning">${escapeHtml(data.text)}</div>
+      `;
+      container.appendChild(el);
+      break;
+
+    case 'tool_call':
+      el = document.createElement('div');
+      el.className = 'tool-call';
+      el.innerHTML = `<span class="icon">&#128203;</span> Calling: <strong>${data.tool_name}</strong>`;
+      container.appendChild(el);
+      break;
+
+    case 'tool_result':
+      el = document.createElement('div');
+      el.className = 'finding ' + data.sentiment;
+      const icon = data.sentiment === 'positive' ? '&#10004;' :
+                   data.sentiment === 'negative' ? '&#10008;' : '&#8505;';
+      const summary = summarizeResult(data.tool_name, data.result);
+      el.innerHTML = `${icon} <strong>${data.tool_name}</strong>: ${escapeHtml(summary)}`;
+      container.appendChild(el);
+      break;
+
+    case 'conclude':
+      el = document.createElement('div');
+      el.className = 'inv-round';
+      el.innerHTML = `
+        <div class="round-header">Round ${data.round} — Conclusion</div>
+        <div class="reasoning">${escapeHtml(data.text)}</div>
+      `;
+      container.appendChild(el);
+      break;
+
+    case 'complete':
+      // Handled by renderReport
+      break;
+  }
+}
+
+function summarizeResult(toolName, result) {
+  if (result.error) return `Error: ${result.error}`;
+  const r = result;
+  switch (toolName) {
+    case 'get_employee_profile':
+      return `Monthly avg: ${r.monthly_avg_expense}, Cities: ${(r.top_cities||[]).join(', ')}, Weekend: ${((r.weekend_expense_ratio||0)*100).toFixed(1)}%`;
+    case 'get_employee_recent_expenses':
+      return `${r.count} expenses in ${r.months} months`;
+    case 'get_approval_history':
+      return `Rejection rate: ${((r.rejection_rate||0)*100).toFixed(1)}%, Overrides: ${r.override_count||0}`;
+    case 'get_amount_distribution':
+      return `${r.total_count} records, ${((r.near_threshold_ratio||0)*100).toFixed(1)}% near threshold (${r.expense_type})`;
+    case 'get_peer_comparison':
+      return `Rank ${r.employee_rank}/${r.peer_count}, Outlier: ${r.is_outlier ? 'YES' : 'no'}`;
+    case 'get_merchant_usage_across_company':
+      return `${r.total_users} users, ${r.total_transactions} txns, Exclusive: ${r.is_exclusive ? 'YES' : 'no'}`;
+    case 'check_geographic_feasibility':
+      return `Feasible: ${r.feasible ? 'yes' : 'NO'}, Travel: ${r.min_travel_time_hours}h`;
+    case 'get_travel_bookings':
+      return `${r.booking_count} bookings found`;
+    default:
+      return JSON.stringify(r).slice(0, 120);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Render final report
+// ═══════════════════════════════════════════════════════════════════════
+function renderReport(report) {
+  const container = document.getElementById('report-container');
+  container.style.display = 'block';
+
+  const tierClass = 'tier-' + (report.recommended_tier || 'T2');
+
+  let hypothesesHtml = '';
+  (report.active_hypotheses || []).forEach(h => {
+    const confPct = ((h.confidence || 0) * 100).toFixed(0);
+    const confColor = h.confidence > 0.6 ? 'var(--red)' : h.confidence > 0.3 ? 'var(--yellow)' : 'var(--green)';
+    hypothesesHtml += `
+      <div class="hypothesis-card">
+        <h4>
+          <span>${escapeHtml(h.name)}</span>
+          <span style="font-size:12px;color:${confColor};font-weight:400">
+            Confidence: ${confPct}%
+            <span class="confidence-bar"><span class="confidence-fill" style="width:${confPct}%;background:${confColor}"></span></span>
+          </span>
+          <span class="badge-${h.status === 'active' ? 'elevated' : 'normal'}">${h.status}</span>
+        </h4>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:6px">${escapeHtml(h.description)}</div>
+        <ul class="evidence-list">
+          ${(h.supporting_evidence||[]).map(e => `<li class="evidence-support">+ ${escapeHtml(e)}</li>`).join('')}
+          ${(h.contradicting_evidence||[]).map(e => `<li class="evidence-contra">- ${escapeHtml(e)}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  });
+
+  let rejectedHtml = '';
+  (report.rejected_hypotheses || []).forEach(h => {
+    rejectedHtml += `
+      <div class="hypothesis-card" style="opacity:0.6">
+        <h4><span style="text-decoration:line-through">${escapeHtml(h.name)}</span>
+          <span class="badge-normal">rejected</span></h4>
+        <ul class="evidence-list">
+          ${(h.contradicting_evidence||[]).map(e => `<li class="evidence-contra">- ${escapeHtml(e)}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  });
+
+  let actionsHtml = '';
+  (report.recommended_actions || []).forEach(a => {
+    const pCls = 'priority-' + (a.priority || 'medium');
+    actionsHtml += `
+      <div class="action-item">
+        <span class="priority-badge ${pCls}">${(a.priority||'medium').toUpperCase()}</span>
+        <div>
+          <div>${escapeHtml(a.action)}</div>
+          <div style="font-size:11px;color:var(--text2)">${a.source || ''} | ${a.effort || ''}</div>
+        </div>
+      </div>
+    `;
+  });
+
+  let beyondHtml = '';
+  (report.beyond_system_capability || []).forEach(b => {
+    beyondHtml += `<div class="beyond-item">&#9888; ${escapeHtml(b)}</div>`;
+  });
+
+  let findingsHtml = '';
+  (report.factual_findings || []).forEach(f => {
+    findingsHtml += `<div style="padding:3px 0;font-size:13px">&#8226; ${escapeHtml(f)}</div>`;
+  });
+
+  container.innerHTML = `
+    <div class="card report-section">
+      <h3>Investigation Report — ${escapeHtml(report.employee_id || '')}</h3>
+      <div style="margin:12px 0;display:flex;align-items:center;gap:16px">
+        <span class="tier-badge ${tierClass}">${report.recommended_tier || 'T2'}</span>
+        <span style="font-size:13px;color:var(--text2)">${escapeHtml(report.tier_reasoning || '')}</span>
+      </div>
+      <div style="font-size:14px;margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:6px">
+        ${escapeHtml(report.summary || '')}
+      </div>
+    </div>
+
+    <div class="card report-section">
+      <h3>Active Hypotheses</h3>
+      ${hypothesesHtml || '<p style="color:var(--text2);font-size:13px">None</p>'}
+    </div>
+
+    ${rejectedHtml ? `<div class="card report-section"><h3>Rejected Hypotheses</h3>${rejectedHtml}</div>` : ''}
+
+    <div class="card report-section">
+      <h3>Factual Findings</h3>
+      ${findingsHtml || '<p style="color:var(--text2);font-size:13px">None</p>'}
+    </div>
+
+    <div class="card report-section">
+      <h3>Recommended Actions</h3>
+      ${actionsHtml || '<p style="color:var(--text2);font-size:13px">None</p>'}
+    </div>
+
+    ${beyondHtml ? `
+    <div class="card report-section">
+      <h3>Beyond System Capability</h3>
+      ${beyondHtml}
+    </div>` : ''}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// History
+// ═══════════════════════════════════════════════════════════════════════
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/investigation-history');
+    const items = await res.json();
+    const container = document.getElementById('history-list');
+    if (!items.length) {
+      container.innerHTML = '<p style="color:var(--text2);font-size:13px;padding:20px;text-align:center">No investigations yet.</p>';
+      return;
+    }
+    container.innerHTML = '';
+    items.forEach(item => {
+      const tierClass = 'tier-' + (item.recommended_tier || 'T2');
+      const dur = item.duration_ms ? `${(item.duration_ms/1000).toFixed(1)}s` : '-';
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.innerHTML = `
+        <span class="tier-badge ${tierClass}" style="font-size:13px;padding:2px 10px">${item.recommended_tier || 'T2'}</span>
+        <div class="history-meta">
+          <div class="emp">${item.employee_id}</div>
+          <div class="summary">${escapeHtml(item.summary || item.trigger_reason || '')}</div>
+          <div class="time">${item.total_rounds} rounds | ${dur} | ${item.hypotheses_count || 0} hypotheses</div>
+        </div>
+      `;
+      div.addEventListener('click', () => {
+        // Switch to investigation tab and show this report
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.querySelector('[data-panel="investigation"]').classList.add('active');
+        document.getElementById('panel-investigation').classList.add('active');
+        replayInvestigation(item.id);
+      });
+      container.appendChild(div);
+    });
+  } catch (e) {
+    console.error('Failed to load history:', e);
+  }
+}
+
+async function replayInvestigation(invId) {
+  try {
+    const res = await fetch(`/api/investigate/${invId}/status`);
+    const data = await res.json();
+    if (data.report) {
+      document.getElementById('stream-card').style.display = 'block';
+      document.getElementById('inv-stream').innerHTML = '';
+      document.getElementById('stream-title').textContent =
+        `Investigation — ${data.report.employee_id || invId}`;
+      // Replay events
+      const stream = document.getElementById('inv-stream');
+      (data.events || []).forEach(evt => renderEvent(stream, evt));
+      renderReport(data.report);
+    }
+  } catch (e) {
+    console.error('Failed to replay investigation:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════════
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
+}
+
+// Init
+loadRiskScores();
+</script>
+</body>
+</html>
