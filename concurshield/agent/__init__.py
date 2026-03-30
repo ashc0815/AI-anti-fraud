@@ -2,6 +2,13 @@
 
 from concurshield.agent.tools import Tool, ToolRegistry, create_default_registry
 from concurshield.agent.risk_scorer import EmployeeRiskScorer, MockEmployeeData, RiskScore
+from concurshield.agent.investigator import (
+    InvestigationAgent,
+    InvestigationReport,
+    InvestigationStep,
+    InvestigationHypothesis,
+    MockLLMClient,
+)
 
 __all__ = [
     "Tool",
@@ -10,4 +17,9 @@ __all__ = [
     "EmployeeRiskScorer",
     "MockEmployeeData",
     "RiskScore",
+    "InvestigationAgent",
+    "InvestigationReport",
+    "InvestigationStep",
+    "InvestigationHypothesis",
+    "MockLLMClient",
 ]
