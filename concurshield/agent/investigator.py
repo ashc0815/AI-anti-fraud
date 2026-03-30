@@ -160,14 +160,18 @@ class InvestigationAgent:
 
     def __init__(
         self,
-        llm_client: Any,
-        tool_registry: ToolRegistry,
+        llm_client: Any = None,
+        tool_registry: ToolRegistry | None = None,
         max_rounds: int = 6,
         max_api_calls: int = 3,
         model: str | None = None,
+        *,
+        registry: ToolRegistry | None = None,
     ) -> None:
-        self.llm = llm_client
-        self.tools = tool_registry
+        self.tools = tool_registry or registry
+        if self.tools is None:
+            raise ValueError("Must provide tool_registry or registry")
+        self.llm = llm_client or MockLLMClient()
         self.max_rounds = max_rounds
         self.max_api_calls = max_api_calls
         self.model = model
