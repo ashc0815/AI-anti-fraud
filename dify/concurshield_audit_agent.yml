@@ -1,0 +1,735 @@
+app:
+  name: ConcurShield Audit Agent
+  description: >
+    费用报销智能审计 Agent。97% 交易走规则引擎 Pipeline（<100ms），
+    3% 可疑交易启动 Agent 多轮自主调查（10-30s）。
+    模拟审计师"查案子"：每一步查什么取决于上一步发现了什么。
+  mode: workflow
+  icon: "\U0001F6E1"
+  icon_background: "#1E3A5F"
+
+workflow:
+  graph:
+    edges:
+      # Start → 接收输入
+      - source: start
+        target: receive_expense
+      # 接收输入 → Layer 1 规则引擎
+      - source: receive_expense
+        target: layer1_math_check
+      - source: receive_expense
+        target: layer1_country_check
+      - source: receive_expense
+        target: layer1_duplicate_check
+      - source: receive_expense
+        target: layer1_exif_check
+      # 并行 Layer 1 → 汇总
+      - source: layer1_math_check
+        target: layer1_aggregate
+      - source: layer1_country_check
+        target: layer1_aggregate
+      - source: layer1_duplicate_check
+        target: layer1_aggregate
+      - source: layer1_exif_check
+        target: layer1_aggregate
+      # 汇总 → 计算员工风险分
+      - source: layer1_aggregate
+        target: compute_risk_score
+      # 风险分 → 决策分支
+      - source: compute_risk_score
+        target: should_trigger_agent
+      # 分支 → Pipeline Only
+      - source: should_trigger_agent
+        target: output_pipeline_only
+        condition: "{{need_agent}} == false"
+      # 分支 → Agent 调查
+      - source: should_trigger_agent
+        target: agent_investigation
+        condition: "{{need_agent}} == true"
+      # Agent 调查 → 最终报告
+      - source: agent_investigation
+        target: generate_final_report
+      # 最终报告 → 输出
+      - source: generate_final_report
+        target: output_investigation
+      # Pipeline Only → End
+      - source: output_pipeline_only
+        target: end
+      # Investigation → End
+      - source: output_investigation
+        target: end
+
+    nodes:
+      # ════════════════════════════════════════════════════════════════
+      # START
+      # ════════════════════════════════════════════════════════════════
+      - id: start
+        type: start
+        title: 开始
+        data:
+          variables:
+            - variable: employee_id
+              type: string
+              label: 员工ID
+              required: true
+              default: "EMP-001"
+            - variable: merchant_name
+              type: string
+              label: 商户名称
+              required: true
+            - variable: merchant_country
+              type: string
+              label: 商户国家
+              required: true
+              default: "CN"
+            - variable: currency
+              type: string
+              label: 币种
+              required: true
+              default: "CNY"
+            - variable: total_amount
+              type: number
+              label: 总金额
+              required: true
+            - variable: subtotal
+              type: number
+              label: 小计
+              required: false
+            - variable: tax_amount
+              type: number
+              label: 税额
+              required: false
+            - variable: tax_rate
+              type: number
+              label: 税率
+              required: false
+            - variable: date
+              type: string
+              label: 交易日期
+              required: true
+              default: "2025-01-15"
+            - variable: items_json
+              type: string
+              label: 行项列表JSON
+              required: false
+              default: "[]"
+            - variable: image_url
+              type: string
+              label: 发票图片URL
+              required: false
+            - variable: force_agent
+              type: boolean
+              label: 强制启动Agent调查
+              required: false
+              default: false
+
+      # ════════════════════════════════════════════════════════════════
+      # 接收并解析输入
+      # ════════════════════════════════════════════════════════════════
+      - id: receive_expense
+        type: code
+        title: "\U0001F4E5 解析报销数据"
+        data:
+          language: python3
+          code: |
+            import json
+
+            def main(employee_id: str, merchant_name: str, merchant_country: str,
+                     currency: str, total_amount: float, subtotal: float,
+                     tax_amount: float, tax_rate: float, date: str,
+                     items_json: str, image_url: str, force_agent: bool) -> dict:
+                """解析输入并构建 OCR 结构化数据"""
+                try:
+                    items = json.loads(items_json) if items_json else []
+                except:
+                    items = []
+
+                ocr_result = {
+                    "merchant_name": merchant_name,
+                    "merchant_country": merchant_country,
+                    "currency": currency,
+                    "total": total_amount,
+                    "subtotal": subtotal,
+                    "tax_amount": tax_amount,
+                    "tax_rate": tax_rate,
+                    "date": date,
+                    "items": items,
+                    "raw_text": f"{merchant_name} {date} {total_amount} {currency}",
+                }
+
+                return {
+                    "employee_id": employee_id,
+                    "ocr_result": json.dumps(ocr_result, ensure_ascii=False),
+                    "image_url": image_url or "",
+                    "force_agent": force_agent,
+                }
+
+      # ════════════════════════════════════════════════════════════════
+      # LAYER 1: 规则引擎 Pipeline（并行执行4个检查）
+      # ════════════════════════════════════════════════════════════════
+
+      # ── 1A. 数学一致性检查 ──────────────────────────────────────
+      - id: layer1_math_check
+        type: code
+        title: "\U0001F522 数学一致性检查"
+        data:
+          language: python3
+          code: |
+            import json
+
+            def main(ocr_result_str: str) -> dict:
+                """
+                MATH_001: sum(items) ≈ subtotal (±0.02)
+                MATH_002: tax_amount ≈ subtotal * tax_rate (±0.05)
+                MATH_003: total ≈ subtotal + tax_amount (±0.02)
+                """
+                ocr = json.loads(ocr_result_str)
+                discrepancies = []
+
+                items = ocr.get("items", [])
+                subtotal = ocr.get("subtotal")
+                tax_amount = ocr.get("tax_amount")
+                tax_rate = ocr.get("tax_rate")
+                total = ocr.get("total", 0)
+
+                # MATH_001: 行项加总
+                if items and subtotal is not None:
+                    item_sum = sum(i.get("amount", 0) for i in items)
+                    diff = abs(item_sum - subtotal)
+                    if diff > 0.02:
+                        discrepancies.append({
+                            "rule_id": "MATH_001",
+                            "rule_name": "行项加总校验",
+                            "detail": f"行项合计={item_sum:.2f}, subtotal={subtotal:.2f}, 差额={diff:.2f}"
+                        })
+
+                # MATH_002: 税额校验
+                if tax_amount is not None and tax_rate is not None and subtotal is not None:
+                    rate = tax_rate if tax_rate < 1 else tax_rate / 100
+                    expected = subtotal * rate
+                    diff = abs(tax_amount - expected)
+                    if diff > 0.05:
+                        discrepancies.append({
+                            "rule_id": "MATH_002",
+                            "rule_name": "税额校验",
+                            "detail": f"tax_amount={tax_amount:.2f}, expected={expected:.2f}, 差额={diff:.2f}"
+                        })
+
+                # MATH_003: 总额校验
+                if subtotal is not None and tax_amount is not None:
+                    expected = subtotal + tax_amount
+                    diff = abs(total - expected)
+                    if diff > 0.02:
+                        discrepancies.append({
+                            "rule_id": "MATH_003",
+                            "rule_name": "总额校验",
+                            "detail": f"total={total:.2f}, subtotal+tax={expected:.2f}, 差额={diff:.2f}"
+                        })
+
+                return {
+                    "passed": len(discrepancies) == 0,
+                    "checks_run": 3,
+                    "discrepancies": json.dumps(discrepancies, ensure_ascii=False),
+                    "has_critical": len(discrepancies) > 0,
+                }
+
+      # ── 1B. 国家特定规则检查 ────────────────────────────────────
+      - id: layer1_country_check
+        type: code
+        title: "\U0001F30D 国家规则检查"
+        data:
+          language: python3
+          code: |
+            import json
+
+            # 货币-国家映射
+            COUNTRY_CURRENCY = {
+                "CN": "CNY", "AU": "AUD", "US": "USD", "GB": "GBP",
+                "JP": "JPY", "DE": "EUR", "FR": "EUR", "KR": "KRW",
+                "HK": "HKD", "SG": "SGD", "CA": "CAD",
+            }
+            CN_VALID_VAT = {0, 1, 3, 5, 6, 9, 13}
+
+            def main(ocr_result_str: str) -> dict:
+                ocr = json.loads(ocr_result_str)
+                country = ocr.get("merchant_country", "")
+                currency = ocr.get("currency", "")
+                tax_rate = ocr.get("tax_rate")
+                violations = []
+
+                # MATH_004: 货币与国家一致性
+                expected_currency = COUNTRY_CURRENCY.get(country)
+                if expected_currency and currency != expected_currency:
+                    violations.append({
+                        "rule_id": "MATH_004",
+                        "rule_name": "货币与国家一致性",
+                        "detail": f"国家={country}, 货币={currency}, 预期={expected_currency}"
+                    })
+
+                # CN 专用：增值税税率校验
+                if country == "CN" and tax_rate is not None:
+                    rate_pct = tax_rate if tax_rate >= 1 else tax_rate * 100
+                    if round(rate_pct) not in CN_VALID_VAT:
+                        violations.append({
+                            "rule_id": "CN_TAX_001",
+                            "rule_name": "增值税税率校验",
+                            "detail": f"税率={tax_rate}（≈{round(rate_pct)}%），有效值={sorted(CN_VALID_VAT)}"
+                        })
+
+                # AU 专用：GST 校验
+                if country == "AU" and tax_rate is not None:
+                    rate_pct = tax_rate if tax_rate >= 1 else tax_rate * 100
+                    if round(rate_pct) not in {0, 10}:
+                        violations.append({
+                            "rule_id": "AU_GST_001",
+                            "rule_name": "GST 税率校验",
+                            "detail": f"税率={tax_rate}（≈{round(rate_pct)}%），有效值=[0, 10]"
+                        })
+
+                return {
+                    "passed": len(violations) == 0,
+                    "violations": json.dumps(violations, ensure_ascii=False),
+                    "country": country,
+                }
+
+      # ── 1C. 重复检测（模拟 pHash）────────────────────────────────
+      - id: layer1_duplicate_check
+        type: code
+        title: "\U0001F50D 重复检测"
+        data:
+          language: python3
+          code: |
+            import hashlib, json
+
+            def main(ocr_result_str: str, image_url: str) -> dict:
+                """基于内容哈希的重复检测（Dify 中无法调用 pHash，用内容指纹替代）"""
+                ocr = json.loads(ocr_result_str)
+                fingerprint = f"{ocr.get('merchant_name')}|{ocr.get('date')}|{ocr.get('total')}|{ocr.get('currency')}"
+                content_hash = hashlib.md5(fingerprint.encode()).hexdigest()
+
+                # MVP: 用已知的测试哈希模拟重复检测
+                known_duplicates = {}  # 生产环境从数据库查询
+
+                is_dup = content_hash in known_duplicates
+                return {
+                    "hash_value": content_hash,
+                    "is_duplicate": is_dup,
+                    "similar_receipts": json.dumps([]),
+                    "max_similarity": 1.0 if is_dup else 0.0,
+                }
+
+      # ── 1D. EXIF / 元数据检查 ───────────────────────────────────
+      - id: layer1_exif_check
+        type: code
+        title: "\U0001F4F7 元数据检查"
+        data:
+          language: python3
+          code: |
+            import json
+
+            def main(image_url: str) -> dict:
+                """EXIF 元数据分析（Dify 中用规则模拟，生产环境调用实际 EXIF 提取 API）"""
+                anomalies = []
+
+                if not image_url:
+                    anomalies.append("未提供图片，无法进行元数据分析")
+                    return {
+                        "has_exif": False,
+                        "anomalies": json.dumps(anomalies, ensure_ascii=False),
+                        "camera": "",
+                        "editing_software": "",
+                    }
+
+                # MVP: 基于 URL 的简单启发式检查
+                url_lower = image_url.lower() if image_url else ""
+                if any(kw in url_lower for kw in ["screenshot", "screen", "截图"]):
+                    anomalies.append("文件名暗示为截图")
+                if any(kw in url_lower for kw in ["edit", "modified", "photoshop"]):
+                    anomalies.append("文件名暗示经过编辑")
+
+                return {
+                    "has_exif": len(anomalies) == 0,
+                    "anomalies": json.dumps(anomalies, ensure_ascii=False),
+                    "camera": "",
+                    "editing_software": "",
+                }
+
+      # ════════════════════════════════════════════════════════════════
+      # Layer 1 结果汇总
+      # ════════════════════════════════════════════════════════════════
+      - id: layer1_aggregate
+        type: code
+        title: "\U0001F4CA Layer 1 汇总"
+        data:
+          language: python3
+          code: |
+            import json
+
+            def main(math_passed: bool, math_has_critical: bool, math_discrepancies: str,
+                     country_passed: bool, country_violations: str, country: str,
+                     is_duplicate: bool, duplicate_hash: str,
+                     exif_has_exif: bool, exif_anomalies: str) -> dict:
+
+                has_critical = math_has_critical or not country_passed
+                has_duplicate = is_duplicate
+
+                # 确定 Tier
+                if has_critical or has_duplicate:
+                    tier = "T3"
+                elif not math_passed:
+                    tier = "T2"
+                else:
+                    tier = "T1"
+
+                # 汇总所有发现
+                findings = []
+                for d in json.loads(math_discrepancies):
+                    findings.append(f"[FAIL] {d['rule_id']} {d['rule_name']}: {d['detail']}")
+                for v in json.loads(country_violations):
+                    findings.append(f"[FAIL] {v['rule_id']} {v['rule_name']}: {v['detail']}")
+                if is_duplicate:
+                    findings.append(f"[FAIL] DUPLICATE: 发现重复发票 (hash={duplicate_hash})")
+                for a in json.loads(exif_anomalies):
+                    findings.append(f"[WARN] EXIF: {a}")
+
+                if not findings:
+                    findings.append("[PASS] 所有规则检查通过")
+
+                return {
+                    "tier": tier,
+                    "has_critical": has_critical,
+                    "has_duplicate": has_duplicate,
+                    "math_passed": math_passed,
+                    "country_passed": country_passed,
+                    "findings_summary": "\n".join(findings),
+                    "findings_count": len([f for f in findings if "[FAIL]" in f]),
+                }
+
+      # ════════════════════════════════════════════════════════════════
+      # 员工风险评分
+      # ════════════════════════════════════════════════════════════════
+      - id: compute_risk_score
+        type: llm
+        title: "\U0001F4CA 员工风险评分"
+        data:
+          model:
+            provider: openai
+            name: gpt-4o-mini
+            mode: chat
+          prompt_template:
+            - role: system
+              text: |
+                你是一个费用审计风险评分引擎。根据员工的报销数据计算风险评分。
+
+                评分维度（各 0-20 分，总分 0-100）：
+                A. 消费偏离度：金额变异系数 CV = std/mean
+                B. 同组偏离度：该员工月均 / 同组中位数
+                C. 供应商集中度：独占商户占比
+                D. 模式稳定性：消费类型分布变化
+                E. 时间模式异常：周末消费 + 月末集中 + 阈值附近聚集
+
+                分级标准：
+                0-30: normal → 只跑规则引擎
+                31-60: elevated → 规则引擎 + 行为信号
+                61-100: high → 启动 Agent 调查
+
+                请严格输出 JSON 格式：
+                {
+                  "total_score": <0-100>,
+                  "classification": "normal/elevated/high",
+                  "dimension_scores": {"A": n, "B": n, "C": n, "D": n, "E": n},
+                  "top_risk_factors": ["因素1", "因素2", "因素3"]
+                }
+            - role: user
+              text: |
+                员工ID：{{employee_id}}
+                当前报销信息：{{ocr_result}}
+                Layer 1 检查结果：
+                {{findings_summary}}
+          parameters:
+            temperature: 0.1
+            response_format:
+              type: json_object
+
+      # ════════════════════════════════════════════════════════════════
+      # 决策分支：是否启动 Agent
+      # ════════════════════════════════════════════════════════════════
+      - id: should_trigger_agent
+        type: code
+        title: "\U00002753 是否启动 Agent"
+        data:
+          language: python3
+          code: |
+            import json, random
+
+            def main(has_critical: bool, has_duplicate: bool, force_agent: bool,
+                     risk_score_response: str, random_sample_rate: float = 0.03) -> dict:
+                """
+                触发条件（满足任一即启动）：
+                a) Layer 1 发现强确定性信号（数学不一致/重复）
+                b) Employee Risk Score > 60
+                c) 随机抽检命中（3%）
+                d) 手动触发标记
+                """
+                reasons = []
+
+                # a) 强制触发
+                if force_agent:
+                    reasons.append("手动触发标记")
+
+                # b) Layer 1 强信号
+                if has_critical:
+                    reasons.append("Layer 1 发现关键异常（数学不一致/规则违规）")
+                if has_duplicate:
+                    reasons.append("Layer 1 发现重复发票")
+
+                # c) Risk Score > 60
+                try:
+                    risk_data = json.loads(risk_score_response)
+                    score = risk_data.get("total_score", 0)
+                    if score > 60:
+                        factors = risk_data.get("top_risk_factors", [])
+                        factor_str = factors[0] if factors else "高风险"
+                        reasons.append(f"Employee Risk Score {score} (high): {factor_str}")
+                except:
+                    score = 0
+
+                # d) 随机抽检
+                if not reasons and random.random() < random_sample_rate:
+                    reasons.append(f"随机抽检命中 ({random_sample_rate:.0%})")
+
+                need_agent = len(reasons) > 0
+                return {
+                    "need_agent": need_agent,
+                    "trigger_reason": "; ".join(reasons) if reasons else "无触发条件",
+                    "processing_path": "agent_investigation" if need_agent else "pipeline_only",
+                }
+
+      # ════════════════════════════════════════════════════════════════
+      # Pipeline Only 输出（97% 交易走这条路）
+      # ════════════════════════════════════════════════════════════════
+      - id: output_pipeline_only
+        type: code
+        title: "\U00002705 Pipeline 输出"
+        data:
+          language: python3
+          code: |
+            import json
+
+            def main(employee_id: str, tier: str, findings_summary: str,
+                     risk_score_response: str) -> dict:
+                tier_actions = {
+                    "T1": "自动通过。无需操作。",
+                    "T2": "低风险提示。建议审计员在日常巡检中关注。",
+                    "T3": "需要人工审核。已加入审计队列。",
+                    "T4": "强制拦截。报销单已自动退回。",
+                }
+                return {
+                    "employee_id": employee_id,
+                    "processing_path": "pipeline_only",
+                    "final_tier": tier,
+                    "tier_source": "rule_engine",
+                    "recommended_action": tier_actions.get(tier, "review"),
+                    "findings": findings_summary,
+                    "risk_score": risk_score_response,
+                }
+
+      # ════════════════════════════════════════════════════════════════
+      # AGENT 调查（3% 交易走这条路 — 核心 OODA 循环）
+      # ════════════════════════════════════════════════════════════════
+      - id: agent_investigation
+        type: llm
+        title: "\U0001F50D Agent 多轮调查"
+        data:
+          model:
+            provider: openai
+            name: gpt-4o
+            mode: chat
+          prompt_template:
+            - role: system
+              text: |
+                你是一位拥有30年经验的四大会计师事务所审计师，专精差旅费用审计。
+                你正在调查一笔被标记为可疑的报销交易。
+
+                你的工作方法：
+                1. 先看整体，找"哪里不对"
+                2. 检查流程有没有被绕过
+                3. 深入具体交易，验证或否定假设
+
+                你的推理规则：
+                - 每次调用工具前，说明你的假设和为什么要查这个数据
+                - 收到数据后，分析发现了什么，决定下一步
+                - 不要一次调用所有工具。一次只调1-2个
+                - 区分事实、推断和假设
+                - 主动寻找能否定你假设的证据（避免确认偏见）
+                - 你的结论是"建议"不是"判定"
+
+                可用工具：
+                1. get_employee_profile(employee_id) — 员工画像：月均消费、常用城市、常用商户、费用类型分布
+                2. get_employee_recent_expenses(employee_id, months) — 近N月报销明细
+                3. get_peer_comparison(approver_id) — 同组对比：中位数、IQR、是否离群
+                4. get_merchant_usage_across_company(merchant_name) — 商户全公司使用情况
+                5. get_travel_bookings(employee_id, date_range) — 出差预订记录
+                6. get_approval_history(employee_id) — 审批链历史
+                7. check_geographic_feasibility(expenses_same_day) — 地理可行性检查
+                8. get_amount_distribution(employee_id, expense_type) — 金额分布与阈值分析
+                9. search_merchant_web(merchant_name, claimed_city) — 商户真实性搜索 [成本: 1次API调用]
+
+                每轮你需要：
+                1. 分析当前证据
+                2. 陈述你的假设
+                3. 决定调用哪个工具（说明理由）
+                4. 分析工具返回的数据
+                5. 更新假设
+
+                最多进行6轮调查。每轮只调1-2个工具。
+            - role: user
+              text: |
+                请开始调查。
+
+                员工ID：{{employee_id}}
+                触发原因：{{trigger_reason}}
+
+                当前报销摘要：
+                {{ocr_result}}
+
+                规则引擎检测结果：
+                {{findings_summary}}
+
+                请按轮次展示你的调查过程，每轮包含：
+                - 当前假设
+                - 选择的工具及理由
+                - 模拟工具调用结果（基于你的审计经验合理推断）
+                - 发现分析
+
+                最后输出结论。
+          parameters:
+            temperature: 0.3
+            max_tokens: 4000
+
+      # ════════════════════════════════════════════════════════════════
+      # 最终报告生成
+      # ════════════════════════════════════════════════════════════════
+      - id: generate_final_report
+        type: llm
+        title: "\U0001F4DD 生成调查报告"
+        data:
+          model:
+            provider: openai
+            name: gpt-4o
+            mode: chat
+          prompt_template:
+            - role: system
+              text: |
+                你是一个审计报告生成器。基于调查过程，生成结构化的最终报告。
+
+                请严格输出以下 JSON 格式：
+                {
+                  "summary": "一段话调查摘要",
+                  "active_hypotheses": [
+                    {
+                      "name": "假设名称",
+                      "description": "描述",
+                      "confidence": 0.0-1.0,
+                      "supporting_evidence": ["证据1"],
+                      "contradicting_evidence": ["反对证据"],
+                      "status": "active"
+                    }
+                  ],
+                  "rejected_hypotheses": [
+                    {
+                      "name": "已排除假设",
+                      "description": "描述",
+                      "confidence": 0.0-1.0,
+                      "supporting_evidence": [],
+                      "contradicting_evidence": ["排除原因"],
+                      "status": "rejected"
+                    }
+                  ],
+                  "factual_findings": ["客观可验证的事实1", "事实2"],
+                  "recommended_actions": [
+                    {
+                      "action": "建议操作",
+                      "priority": "high/medium/low",
+                      "source": "system/manual",
+                      "effort": "工作量描述"
+                    }
+                  ],
+                  "beyond_system_capability": ["需人工核实的项"],
+                  "recommended_tier": "T1/T2/T3/T4",
+                  "tier_reasoning": "分级理由"
+                }
+            - role: user
+              text: |
+                员工ID：{{employee_id}}
+                触发原因：{{trigger_reason}}
+
+                Layer 1 结果：
+                {{findings_summary}}
+
+                Agent 调查过程：
+                {{agent_investigation_output}}
+
+                请生成最终调查报告（JSON 格式）。
+          parameters:
+            temperature: 0.1
+            response_format:
+              type: json_object
+
+      # ════════════════════════════════════════════════════════════════
+      # Agent 调查结果输出
+      # ════════════════════════════════════════════════════════════════
+      - id: output_investigation
+        type: code
+        title: "\U0001F4CB 调查结果输出"
+        data:
+          language: python3
+          code: |
+            import json
+
+            def main(employee_id: str, trigger_reason: str, tier: str,
+                     findings_summary: str, final_report_json: str,
+                     agent_investigation_output: str) -> dict:
+                """合并 Layer 1 结果和 Agent 调查结果"""
+                try:
+                    report = json.loads(final_report_json)
+                except:
+                    report = {"recommended_tier": tier, "summary": "报告解析失败"}
+
+                # Agent 推荐的 tier 优先（如果更严格）
+                tier_order = {"T1": 1, "T2": 2, "T3": 3, "T4": 4}
+                agent_tier = report.get("recommended_tier", "T2")
+                final_tier = agent_tier if tier_order.get(agent_tier, 0) >= tier_order.get(tier, 0) else tier
+
+                return {
+                    "employee_id": employee_id,
+                    "processing_path": "agent_investigation",
+                    "trigger_reason": trigger_reason,
+                    "final_tier": final_tier,
+                    "tier_source": "agent_recommendation",
+                    "layer1_findings": findings_summary,
+                    "investigation_summary": report.get("summary", ""),
+                    "active_hypotheses": json.dumps(report.get("active_hypotheses", []), ensure_ascii=False),
+                    "rejected_hypotheses": json.dumps(report.get("rejected_hypotheses", []), ensure_ascii=False),
+                    "factual_findings": json.dumps(report.get("factual_findings", []), ensure_ascii=False),
+                    "recommended_actions": json.dumps(report.get("recommended_actions", []), ensure_ascii=False),
+                    "beyond_system_capability": json.dumps(report.get("beyond_system_capability", []), ensure_ascii=False),
+                    "tier_reasoning": report.get("tier_reasoning", ""),
+                    "full_investigation": agent_investigation_output,
+                }
+
+      # ════════════════════════════════════════════════════════════════
+      # END
+      # ════════════════════════════════════════════════════════════════
+      - id: end
+        type: end
+        title: 结束
+        data:
+          outputs:
+            - variable: result
+              type: object
+              value:
+                employee_id: "{{employee_id}}"
+                processing_path: "{{processing_path}}"
+                final_tier: "{{final_tier}}"
+                tier_source: "{{tier_source}}"
