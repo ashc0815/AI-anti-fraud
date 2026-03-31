@@ -145,19 +145,29 @@ def _stricter_tier(a: str, b: str) -> str:
 
 
 class ConcurShieldOrchestrator:
-    """完整审计编排引擎。"""
+    """完整审计编排引擎。
+
+    用法::
+
+        orch = ConcurShieldOrchestrator(company_data, llm_provider="mock")
+        result = await orch.run_full_analysis()
+    """
 
     def __init__(
         self,
+        company_data: dict[str, list[dict]] | None = None,
+        *,
+        llm_provider: str = "mock",
         tool_registry: ToolRegistry | None = None,
         risk_scorer: EmployeeRiskScorer | None = None,
         agent: InvestigationAgent | None = None,
         llm: LLMClient | None = None,
         random_sample_rate: float = 0.03,
     ) -> None:
+        self.company_data = company_data or {}
         self.registry = tool_registry or create_default_registry()
         self.scorer = risk_scorer or EmployeeRiskScorer()
-        self.llm = llm or LLMClient(provider="mock")
+        self.llm = llm or LLMClient(provider=llm_provider)
         self.agent = agent or InvestigationAgent(
             llm=self.llm, tool_registry=self.registry,
         )
@@ -168,19 +178,17 @@ class ConcurShieldOrchestrator:
 
     async def run_full_analysis(
         self,
-        company_data: dict[str, list[dict]],
+        company_data: dict[str, list[dict]] | None = None,
     ) -> AnalysisResult:
         """对全公司员工批量分析。
 
-        流程：
-        1. 全员 Risk Score 计算并排序
-        2. 对每个员工执行 Layer 1 规则引擎
-        3. 触发判定：Score ≥ 61 OR Layer 1 异常 OR 随机 3%
-        4. 满足条件的员工启动 Agent 调查
-
-        Returns:
-            AnalysisResult 包含全部员工的 risk score + 处理结果 + 汇总。
+        Args:
+            company_data: 公司数据。未传时使用构造函数中的 self.company_data。
         """
+        company_data = company_data or self.company_data
+        if not company_data:
+            raise ValueError("No company_data provided")
+
         start = time.monotonic()
         self._risk_cache.clear()
 
@@ -241,6 +249,9 @@ class ConcurShieldOrchestrator:
             risk_scores=risk_scores,
             employee_results=employee_results,
             summary={
+                "total_employees": len(risk_scores),
+                "pipeline_only_count": pipeline_only,
+                "investigations_count": agent_investigated,
                 "by_tier": by_tier,
                 "by_risk_class": by_class,
                 "agent_findings": agent_findings,
@@ -254,11 +265,12 @@ class ConcurShieldOrchestrator:
     async def investigate_employee(
         self,
         employee_id: str,
-        company_data: dict[str, list[dict]],
+        company_data: dict[str, list[dict]] | None = None,
         *,
         trigger_reason: str = "手动触发",
     ) -> EmployeeResult:
         """手动触发对单个员工的完整调查（跳过触发判定）。"""
+        company_data = company_data or self.company_data
         expenses = company_data.get(employee_id, [])
 
         # 计算 risk score
