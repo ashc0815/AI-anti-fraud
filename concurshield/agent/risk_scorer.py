@@ -1,13 +1,20 @@
 """Employee Risk Scorer — 对每个员工计算风险评分，决定交易处理深度。
 
 五个子维度（各 0-20 分），总分 0-100：
-  A. 消费偏离度  B. 同组偏离度  C. 供应商集中度风险
-  D. 模式稳定性  E. 时间模式异常
+  A. 消费偏离度（CV + 近期趋势 + 同比校正）
+  B. 同组偏离度（vs 同审批人下中位数）
+  C. 供应商集中度风险（独占比例）
+  D. 模式稳定性（费用类型余弦相似度）
+  E. 时间模式异常（周末 + 月末 + 延迟 + 阈值聚集）
 
 分级：
   0-30  normal   → 只跑 Layer 1 规则引擎
   31-60 elevated → Layer 1 + 行为信号检查
   61-100 high    → Layer 1 + 启动 Agent 调查
+
+同比校正：
+  如有 12+ 月数据，对维度 A/D 做 YoY 同比校正（排除季节性波动）。
+  否则标注 yoy_correction="no_yoy_correction"。
 """
 
 from __future__ import annotations
@@ -36,6 +43,8 @@ class RiskScore(BaseModel):
     dimension_scores: dict  # {A: 12, B: 8, C: 16, D: 5, E: 10}
     dimension_details: dict  # 每个维度的具体计算过程
     top_risk_factors: list[str]  # 排名前 3 的风险因素描述
+    yoy_correction: str = "no_yoy_correction"  # "applied" / "no_yoy_correction"
+    data_months: float = 0.0  # 数据跨度（月）
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -66,7 +75,7 @@ def _gen_normal_expenses(
     months: int,
 ) -> list[dict]:
     """生成正常员工的报销记录。"""
-    records: list[str | dict] = []
+    records: list[dict] = []
     total_days = months * 30
     num_records = rng.randint(months * 4, months * 6)
 
@@ -108,9 +117,12 @@ class MockEmployeeData:
         - EMP-018: 独占商户 + 高频使用（疑似幽灵供应商）
         - EMP-019: 阈值试探 + 费用类型突变（疑似有意识虚报）
         - EMP-020: 周末消费 + 无出差记录（疑似私人消费报公账）
+
+        Args:
+            months: 数据月数。设 14 可启用 YoY 同比校正。
         """
         rng = random.Random(2025)
-        base_date = datetime(2024, 10, 1)
+        base_date = datetime(2024, 10, 1) - timedelta(days=max(0, months - 6) * 30)
         approvers = [f"MGR-{i:03d}" for i in range(1, num_approvers + 1)]
 
         company: dict[str, list[dict]] = {}
@@ -124,7 +136,6 @@ class MockEmployeeData:
         # ── EMP-017: 金额飙升 + 新城市 ───────────────────────────
         eid = f"EMP-{num_employees - 3:03d}"
         records = _gen_normal_expenses(rng, eid, approvers[0], base_date, months)
-        # 最近 2 个月注入异常：金额 3-5 倍、出现新城市
         recent_cutoff = base_date + timedelta(days=(months - 2) * 30)
         for r in records:
             if datetime.strptime(r["date"], "%Y-%m-%d") >= recent_cutoff:
@@ -149,7 +160,6 @@ class MockEmployeeData:
         records = _gen_normal_expenses(rng, eid, approvers[2], base_date, months)
         for r in records:
             if datetime.strptime(r["date"], "%Y-%m-%d") >= recent_cutoff:
-                # 金额集中在阈值 (200 CNY) 的 90-99%
                 r["category"] = "餐饮"
                 r["amount"] = round(rng.uniform(180, 199), 2)
         company[eid] = records
@@ -161,7 +171,6 @@ class MockEmployeeData:
         for r in records:
             dt = datetime.strptime(r["date"], "%Y-%m-%d")
             if weekend_inject < 10:
-                # 强制放到周末
                 days_to_sat = (5 - dt.weekday()) % 7
                 new_dt = dt + timedelta(days=days_to_sat)
                 r["date"] = new_dt.strftime("%Y-%m-%d")
@@ -172,7 +181,7 @@ class MockEmployeeData:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Scorer
+# Helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -191,6 +200,61 @@ def _cosine_similarity(a: dict[str, float], b: dict[str, float]) -> float:
     return dot / (mag_a * mag_b)
 
 
+def _data_span_months(expenses: list[dict]) -> float:
+    """计算数据跨度（月数）。"""
+    if len(expenses) < 2:
+        return 0.0
+    dates = sorted(r["date"] for r in expenses)
+    first = datetime.strptime(dates[0], "%Y-%m-%d")
+    last = datetime.strptime(dates[-1], "%Y-%m-%d")
+    return (last - first).days / 30.0
+
+
+def _split_yoy(
+    expenses: list[dict],
+) -> tuple[list[dict], list[dict]] | None:
+    """将数据拆分为「去年同期」和「今年同期」。
+
+    如果数据跨度 < 12 个月，返回 None。
+    今年同期 = 最近 3 个月；去年同期 = 12 个月前的对应 3 个月。
+    """
+    if not expenses:
+        return None
+
+    dates = sorted(expenses, key=lambda r: r["date"])
+    all_dates = [datetime.strptime(r["date"], "%Y-%m-%d") for r in dates]
+    latest = max(all_dates)
+    earliest = min(all_dates)
+
+    if (latest - earliest).days < 365:
+        return None
+
+    # 今年同期：最近 90 天
+    current_start = latest - timedelta(days=90)
+    # 去年同期：12 个月前的同一个 90 天窗口
+    yoy_end = current_start
+    yoy_start = yoy_end - timedelta(days=90)
+
+    current_period = [
+        r for r in expenses
+        if datetime.strptime(r["date"], "%Y-%m-%d") >= current_start
+    ]
+    yoy_period = [
+        r for r in expenses
+        if yoy_start <= datetime.strptime(r["date"], "%Y-%m-%d") < yoy_end
+    ]
+
+    if not current_period or not yoy_period:
+        return None
+
+    return yoy_period, current_period
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Scorer
+# ═══════════════════════════════════════════════════════════════════════════
+
+
 class EmployeeRiskScorer:
     """计算每个员工的风险评分（0-100），决定交易处理深度。"""
 
@@ -200,18 +264,18 @@ class EmployeeRiskScorer:
     # ── A. 消费偏离度 (0-20) ──────────────────────────────────────
 
     def _score_expense_deviation(
-        self, expenses: list[dict],
+        self, expenses: list[dict], yoy_data: tuple[list[dict], list[dict]] | None,
     ) -> tuple[int, dict]:
-        """CV = std/mean，最近 2 个月权重 ×2。"""
+        """CV = std/mean（近 2 月权重 ×2）+ 近期趋势 + YoY 同比校正。"""
         if len(expenses) < 3:
             return 0, {"cv": 0, "reason": "记录不足"}
 
         dates = sorted(expenses, key=lambda r: r["date"])
         all_dates = [datetime.strptime(r["date"], "%Y-%m-%d") for r in dates]
-        cutoff = max(all_dates) - timedelta(days=60)
+        cutoff_2m = max(all_dates) - timedelta(days=60)
 
-        recent = [r["amount"] for r in dates if datetime.strptime(r["date"], "%Y-%m-%d") >= cutoff]
-        older = [r["amount"] for r in dates if datetime.strptime(r["date"], "%Y-%m-%d") < cutoff]
+        recent = [r["amount"] for r in dates if datetime.strptime(r["date"], "%Y-%m-%d") >= cutoff_2m]
+        older = [r["amount"] for r in dates if datetime.strptime(r["date"], "%Y-%m-%d") < cutoff_2m]
 
         # 加权序列：最近 2 个月权重 ×2
         weighted = older + recent * 2
@@ -222,20 +286,59 @@ class EmployeeRiskScorer:
         std_val = statistics.stdev(weighted)
         cv = std_val / mean_val if mean_val > 0 else 0
 
-        if cv > 0.5:
-            score = _clamp(16 + (cv - 0.5) * 8)  # 0.5→16, 1.0→20
-        elif cv > 0.3:
-            score = _clamp(8 + (cv - 0.3) / 0.2 * 7)  # 0.3→8, 0.5→15
-        else:
-            score = _clamp(cv / 0.3 * 7)  # 0→0, 0.3→7
+        # 近期趋势：最近 2 月均值 vs 之前均值
+        trend_ratio = 0.0
+        if recent and older:
+            recent_mean = statistics.mean(recent)
+            older_mean = statistics.mean(older)
+            trend_ratio = recent_mean / older_mean if older_mean > 0 else 1.0
 
-        detail = {
+        # 基础 CV 分数
+        if cv > 0.5:
+            base_score = 16 + (cv - 0.5) * 8  # 0.5→16, 1.0→20
+        elif cv > 0.3:
+            base_score = 8 + (cv - 0.3) / 0.2 * 7  # 0.3→8, 0.5→15
+        else:
+            base_score = cv / 0.3 * 7  # 0→0, 0.3→7
+
+        # 趋势加分：近期均值 > 前期的 1.5 倍 → 额外 +3
+        trend_bonus = 0.0
+        if trend_ratio > 2.0:
+            trend_bonus = 3.0
+        elif trend_ratio > 1.5:
+            trend_bonus = (trend_ratio - 1.5) / 0.5 * 3.0
+
+        raw_score = base_score + trend_bonus
+
+        # YoY 同比校正：如果去年同期也有类似 CV，则降分（季节性波动）
+        yoy_discount = 0.0
+        yoy_cv = None
+        if yoy_data:
+            yoy_period, _ = yoy_data
+            yoy_amounts = [r["amount"] for r in yoy_period]
+            if len(yoy_amounts) >= 3:
+                yoy_mean = statistics.mean(yoy_amounts)
+                yoy_std = statistics.stdev(yoy_amounts)
+                yoy_cv = yoy_std / yoy_mean if yoy_mean > 0 else 0
+                # 如果去年同期 CV 也高（差距 < 0.15），说明是季节性 → 打折
+                if abs(cv - yoy_cv) < 0.15:
+                    yoy_discount = min(raw_score * 0.4, 8.0)
+
+        score = _clamp(raw_score - yoy_discount)
+
+        detail: dict[str, Any] = {
             "cv": round(cv, 4),
             "weighted_mean": round(mean_val, 2),
             "weighted_std": round(std_val, 2),
             "recent_count": len(recent),
             "older_count": len(older),
+            "trend_ratio": round(trend_ratio, 4),
+            "trend_bonus": round(trend_bonus, 2),
         }
+        if yoy_cv is not None:
+            detail["yoy_cv"] = round(yoy_cv, 4)
+            detail["yoy_discount"] = round(yoy_discount, 2)
+
         return score, detail
 
     # ── B. 同组偏离度 (0-20) ──────────────────────────────────────
@@ -286,7 +389,6 @@ class EmployeeRiskScorer:
         if not emp_merchants:
             return 0, {"exclusive_ratio": 0, "reason": "无商户数据"}
 
-        # 全公司所有商户 → 使用人数
         company_merchant_users: dict[str, set[str]] = {}
         for eid, exps in company.items():
             for r in exps:
@@ -316,9 +418,9 @@ class EmployeeRiskScorer:
     # ── D. 模式稳定性 (0-20) ──────────────────────────────────────
 
     def _score_pattern_stability(
-        self, expenses: list[dict],
+        self, expenses: list[dict], yoy_data: tuple[list[dict], list[dict]] | None,
     ) -> tuple[int, dict]:
-        """最近 1 个月 vs 前 5 个月的费用类型分布余弦相似度。"""
+        """最近 1 个月 vs 前期的费用类型分布余弦相似度 + YoY 校正。"""
         if len(expenses) < 5:
             return 0, {"cosine_sim": 1.0, "reason": "记录不足"}
 
@@ -338,18 +440,39 @@ class EmployeeRiskScorer:
 
         sim = _cosine_similarity(recent_dist, older_dist)
 
+        # 基础分数
         if sim < 0.7:
-            score = _clamp(16 + (0.7 - sim) / 0.7 * 4)
+            base_score = 16 + (0.7 - sim) / 0.7 * 4
         elif sim < 0.9:
-            score = _clamp(8 + (0.9 - sim) / 0.2 * 7)
+            base_score = 8 + (0.9 - sim) / 0.2 * 7
         else:
-            score = _clamp((1.0 - sim) / 0.1 * 7)
+            base_score = (1.0 - sim) / 0.1 * 7
 
-        detail = {
+        # YoY 校正：如果去年同期也发生了类似的分布变化 → 季节性，降分
+        yoy_discount = 0.0
+        yoy_sim = None
+        if yoy_data:
+            yoy_period, current_period = yoy_data
+            yoy_dist: dict[str, float] = {}
+            for r in yoy_period:
+                yoy_dist[r["category"]] = yoy_dist.get(r["category"], 0) + r["amount"]
+            if yoy_dist and recent_dist:
+                yoy_sim = _cosine_similarity(recent_dist, yoy_dist)
+                # 如果今年模式跟去年同期很像（sim > 0.85），说明是季节性 → 打折
+                if yoy_sim > 0.85:
+                    yoy_discount = min(base_score * 0.5, 10.0)
+
+        score = _clamp(base_score - yoy_discount)
+
+        detail: dict[str, Any] = {
             "cosine_sim": round(sim, 4),
             "recent_distribution": {k: round(v, 2) for k, v in recent_dist.items()},
             "older_distribution": {k: round(v, 2) for k, v in older_dist.items()},
         }
+        if yoy_sim is not None:
+            detail["yoy_sim"] = round(yoy_sim, 4)
+            detail["yoy_discount"] = round(yoy_discount, 2)
+
         return score, detail
 
     # ── E. 时间模式异常 (0-20) ────────────────────────────────────
@@ -369,12 +492,12 @@ class EmployeeRiskScorer:
         weekend_ratio = weekend_count / total
         e1 = min(5, int(weekend_ratio / 0.2 * 5))
 
-        # E2: 月末集中度 (25-31 号的消费占比，正常 ~22%，异常 >40%)
+        # E2: 月末集中度 (25-31 号，正常 ~22%，异常 >40%)
         month_end_count = sum(1 for d in parsed_dates if d.day >= 25)
         month_end_ratio = month_end_count / total
         e2 = min(5, int(max(0, month_end_ratio - 0.22) / 0.18 * 5))
 
-        # E3: 提交延迟偏离 (MVP: 基于日期间隔模拟)
+        # E3: 提交延迟偏离 (基于日期间隔模拟)
         if len(parsed_dates) >= 2:
             gaps = [
                 (parsed_dates[i + 1] - parsed_dates[i]).days
@@ -382,7 +505,6 @@ class EmployeeRiskScorer:
                 if (parsed_dates[i + 1] - parsed_dates[i]).days >= 0
             ]
             avg_gap = statistics.mean(gaps) if gaps else 0
-            # 正常 1-3 天提交，异常 >7 天
             e3 = min(5, int(max(0, avg_gap - 3) / 4 * 5))
         else:
             e3 = 0
@@ -426,13 +548,15 @@ class EmployeeRiskScorer:
         company: dict[str, list[dict]],
     ) -> RiskScore:
         """对单个员工计算完整风险评分。"""
+        # 数据跨度
+        data_months = _data_span_months(expenses)
+        has_yoy = data_months >= 12.0
+        yoy_data = _split_yoy(expenses) if has_yoy else None
+
         # 计算月均
         if expenses:
             total_amount = sum(r["amount"] for r in expenses)
-            dates = sorted(r["date"] for r in expenses)
-            first = datetime.strptime(dates[0], "%Y-%m-%d")
-            last = datetime.strptime(dates[-1], "%Y-%m-%d")
-            m = max((last - first).days / 30.0, 1)
+            m = max(data_months, 1)
             monthly_avg = total_amount / m
         else:
             monthly_avg = 0
@@ -440,10 +564,10 @@ class EmployeeRiskScorer:
         approver_id = expenses[0].get("approver_id", "") if expenses else ""
 
         # 五个维度
-        a_score, a_detail = self._score_expense_deviation(expenses)
+        a_score, a_detail = self._score_expense_deviation(expenses, yoy_data)
         b_score, b_detail = self._score_peer_deviation(monthly_avg, company, approver_id)
         c_score, c_detail = self._score_merchant_concentration(expenses, company, employee_id)
-        d_score, d_detail = self._score_pattern_stability(expenses)
+        d_score, d_detail = self._score_pattern_stability(expenses, yoy_data)
         e_score, e_detail = self._score_time_patterns(expenses)
 
         total = a_score + b_score + c_score + d_score + e_score
@@ -452,7 +576,10 @@ class EmployeeRiskScorer:
         # 生成 top risk factors
         factors: list[tuple[int, str]] = []
         if a_score >= 8:
-            factors.append((a_score, f"消费偏离度高 (CV={a_detail.get('cv', 0):.2f})"))
+            trend_info = ""
+            if a_detail.get("trend_ratio", 0) > 1.5:
+                trend_info = f", 近期趋势×{a_detail['trend_ratio']:.1f}"
+            factors.append((a_score, f"消费偏离度高 (CV={a_detail.get('cv', 0):.2f}{trend_info})"))
         if b_score >= 8:
             factors.append((b_score, f"月均消费是同组中位数的 {b_detail.get('ratio', 0):.1f} 倍"))
         if c_score >= 8:
@@ -491,6 +618,8 @@ class EmployeeRiskScorer:
                 "E_time_patterns": e_detail,
             },
             top_risk_factors=top_factors,
+            yoy_correction="applied" if yoy_data else "no_yoy_correction",
+            data_months=round(data_months, 1),
         )
 
     def batch_score_all(
