@@ -258,7 +258,7 @@ def _split_yoy(
 class EmployeeRiskScorer:
     """计算每个员工的风险评分（0-100），决定交易处理深度。"""
 
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(self, registry: ToolRegistry | None = None) -> None:
         self.registry = registry
 
     # ── A. 消费偏离度 (0-20) ──────────────────────────────────────
@@ -266,61 +266,72 @@ class EmployeeRiskScorer:
     def _score_expense_deviation(
         self, expenses: list[dict], yoy_data: tuple[list[dict], list[dict]] | None,
     ) -> tuple[int, dict]:
-        """CV = std/mean（近 2 月权重 ×2）+ 近期趋势 + YoY 同比校正。"""
+        """月度总额 CV + 近期趋势 + YoY 同比校正。
+
+        使用月度总额（而非单笔金额）计算 CV，避免跨品类金额差异
+        导致正常员工虚高。
+        """
         if len(expenses) < 3:
             return 0, {"cv": 0, "reason": "记录不足"}
 
-        dates = sorted(expenses, key=lambda r: r["date"])
-        all_dates = [datetime.strptime(r["date"], "%Y-%m-%d") for r in dates]
-        cutoff_2m = max(all_dates) - timedelta(days=60)
+        # 按月聚合金额
+        monthly_totals: dict[str, float] = {}
+        for r in expenses:
+            month_key = r["date"][:7]  # "YYYY-MM"
+            monthly_totals[month_key] = monthly_totals.get(month_key, 0) + r["amount"]
 
-        recent = [r["amount"] for r in dates if datetime.strptime(r["date"], "%Y-%m-%d") >= cutoff_2m]
-        older = [r["amount"] for r in dates if datetime.strptime(r["date"], "%Y-%m-%d") < cutoff_2m]
+        months_sorted = sorted(monthly_totals.keys())
+        if len(months_sorted) < 2:
+            return 0, {"cv": 0, "reason": "月数不足"}
 
-        # 加权序列：最近 2 个月权重 ×2
-        weighted = older + recent * 2
-        if not weighted or len(weighted) < 2:
-            return 0, {"cv": 0, "reason": "加权序列不足"}
-
-        mean_val = statistics.mean(weighted)
-        std_val = statistics.stdev(weighted)
+        amounts = [monthly_totals[m] for m in months_sorted]
+        mean_val = statistics.mean(amounts)
+        std_val = statistics.stdev(amounts)
         cv = std_val / mean_val if mean_val > 0 else 0
 
         # 近期趋势：最近 2 月均值 vs 之前均值
-        trend_ratio = 0.0
-        if recent and older:
-            recent_mean = statistics.mean(recent)
-            older_mean = statistics.mean(older)
+        if len(months_sorted) >= 3:
+            recent_months = amounts[-2:]
+            older_months = amounts[:-2]
+            recent_mean = statistics.mean(recent_months)
+            older_mean = statistics.mean(older_months) if older_months else recent_mean
+            trend_ratio = recent_mean / older_mean if older_mean > 0 else 1.0
+        else:
+            recent_mean = amounts[-1]
+            older_mean = amounts[0]
             trend_ratio = recent_mean / older_mean if older_mean > 0 else 1.0
 
-        # 基础 CV 分数
-        if cv > 0.5:
-            base_score = 16 + (cv - 0.5) * 8  # 0.5→16, 1.0→20
-        elif cv > 0.3:
-            base_score = 8 + (cv - 0.3) / 0.2 * 7  # 0.3→8, 0.5→15
+        # 基础 CV 分数（月度 CV 阈值比单笔更严格）
+        if cv > 0.4:
+            base_score = 14 + (cv - 0.4) * 10  # 0.4→14, 1.0→20
+        elif cv > 0.2:
+            base_score = 6 + (cv - 0.2) / 0.2 * 8  # 0.2→6, 0.4→14
         else:
-            base_score = cv / 0.3 * 7  # 0→0, 0.3→7
+            base_score = cv / 0.2 * 6  # 0→0, 0.2→6
 
-        # 趋势加分：近期均值 > 前期的 1.5 倍 → 额外 +3
+        # 趋势加分：近期月均 > 前期的 1.5 倍 → 额外 +4
         trend_bonus = 0.0
         if trend_ratio > 2.0:
-            trend_bonus = 3.0
+            trend_bonus = 4.0
         elif trend_ratio > 1.5:
-            trend_bonus = (trend_ratio - 1.5) / 0.5 * 3.0
+            trend_bonus = (trend_ratio - 1.5) / 0.5 * 4.0
 
         raw_score = base_score + trend_bonus
 
-        # YoY 同比校正：如果去年同期也有类似 CV，则降分（季节性波动）
+        # YoY 同比校正
         yoy_discount = 0.0
         yoy_cv = None
         if yoy_data:
             yoy_period, _ = yoy_data
-            yoy_amounts = [r["amount"] for r in yoy_period]
-            if len(yoy_amounts) >= 3:
+            yoy_monthly: dict[str, float] = {}
+            for r in yoy_period:
+                mk = r["date"][:7]
+                yoy_monthly[mk] = yoy_monthly.get(mk, 0) + r["amount"]
+            yoy_amounts = list(yoy_monthly.values())
+            if len(yoy_amounts) >= 2:
                 yoy_mean = statistics.mean(yoy_amounts)
                 yoy_std = statistics.stdev(yoy_amounts)
                 yoy_cv = yoy_std / yoy_mean if yoy_mean > 0 else 0
-                # 如果去年同期 CV 也高（差距 < 0.15），说明是季节性 → 打折
                 if abs(cv - yoy_cv) < 0.15:
                     yoy_discount = min(raw_score * 0.4, 8.0)
 
@@ -328,10 +339,9 @@ class EmployeeRiskScorer:
 
         detail: dict[str, Any] = {
             "cv": round(cv, 4),
-            "weighted_mean": round(mean_val, 2),
-            "weighted_std": round(std_val, 2),
-            "recent_count": len(recent),
-            "older_count": len(older),
+            "monthly_mean": round(mean_val, 2),
+            "monthly_std": round(std_val, 2),
+            "num_months": len(months_sorted),
             "trend_ratio": round(trend_ratio, 4),
             "trend_bonus": round(trend_bonus, 2),
         }
@@ -384,7 +394,7 @@ class EmployeeRiskScorer:
     def _score_merchant_concentration(
         self, expenses: list[dict], company: dict[str, list[dict]], employee_id: str,
     ) -> tuple[int, dict]:
-        """独占商户数 / 该员工使用的总商户数。"""
+        """独占商户占比 + 独占商户交易量占比（volume-weighted）。"""
         emp_merchants = set(r["merchant"] for r in expenses)
         if not emp_merchants:
             return 0, {"exclusive_ratio": 0, "reason": "无商户数据"}
@@ -398,7 +408,15 @@ class EmployeeRiskScorer:
             m for m in emp_merchants
             if len(company_merchant_users.get(m, set())) == 1
         ]
-        ratio = len(exclusive) / len(emp_merchants)
+        count_ratio = len(exclusive) / len(emp_merchants)
+
+        # Volume-weighted: 独占商户的交易笔数占该员工总笔数的比例
+        exclusive_set = set(exclusive)
+        exclusive_txn_count = sum(1 for r in expenses if r["merchant"] in exclusive_set)
+        volume_ratio = exclusive_txn_count / len(expenses) if expenses else 0
+
+        # 取两者中较高的作为风险信号
+        ratio = max(count_ratio, volume_ratio)
 
         if ratio > 0.3:
             score = _clamp(16 + (ratio - 0.3) / 0.7 * 4)
@@ -411,6 +429,8 @@ class EmployeeRiskScorer:
             "total_merchants": len(emp_merchants),
             "exclusive_merchants": len(exclusive),
             "exclusive_names": exclusive[:5],
+            "exclusive_count_ratio": round(count_ratio, 4),
+            "exclusive_volume_ratio": round(volume_ratio, 4),
             "exclusive_ratio": round(ratio, 4),
         }
         return score, detail
@@ -420,13 +440,13 @@ class EmployeeRiskScorer:
     def _score_pattern_stability(
         self, expenses: list[dict], yoy_data: tuple[list[dict], list[dict]] | None,
     ) -> tuple[int, dict]:
-        """最近 1 个月 vs 前期的费用类型分布余弦相似度 + YoY 校正。"""
+        """最近 2 个月 vs 前期的费用类型分布余弦相似度 + YoY 校正。"""
         if len(expenses) < 5:
             return 0, {"cosine_sim": 1.0, "reason": "记录不足"}
 
         dates = sorted(expenses, key=lambda r: r["date"])
         all_dates = [datetime.strptime(r["date"], "%Y-%m-%d") for r in dates]
-        cutoff = max(all_dates) - timedelta(days=30)
+        cutoff = max(all_dates) - timedelta(days=60)
 
         recent_dist: dict[str, float] = {}
         older_dist: dict[str, float] = {}
@@ -509,15 +529,31 @@ class EmployeeRiskScorer:
         else:
             e3 = 0
 
-        # E4: 阈值附近聚集度 (金额在 [阈值*0.9, 阈值] 的占比)
-        threshold_map = {"餐饮": 200, "交通": 500, "住宿": 800, "办公": 500}
+        # E4: 阈值附近聚集度
+        # 全局占比 + 任意品类内 near-threshold 比例（取高者）
+        threshold_map = {"餐饮": 200, "交通": 500, "住宿": 500, "办公": 500}
         near_threshold = 0
+        cat_near: dict[str, list[int]] = {}  # cat → [near_count, total_count]
         for r in expenses:
-            t = threshold_map.get(r["category"], 500)
+            cat = r["category"]
+            t = threshold_map.get(cat, 500)
+            cat_near.setdefault(cat, [0, 0])
+            cat_near[cat][1] += 1
             if t * 0.9 <= r["amount"] <= t:
                 near_threshold += 1
+                cat_near[cat][0] += 1
         near_ratio = near_threshold / total
-        e4 = min(5, int(near_ratio / 0.15 * 5))
+        # Per-category: if any category has >50% near-threshold → max score
+        max_cat_ratio = 0.0
+        for cat, (nc, tc) in cat_near.items():
+            if tc >= 3:
+                max_cat_ratio = max(max_cat_ratio, nc / tc)
+        # Per-category ratio > 50% is extremely suspicious → scale up to 10
+        if max_cat_ratio > 0.5:
+            e4 = min(10, 5 + round((max_cat_ratio - 0.5) * 20))
+        else:
+            effective_ratio = max(near_ratio, max_cat_ratio * 0.5)
+            e4 = min(5, int(effective_ratio / 0.12 * 5))
 
         score = e1 + e2 + e3 + e4
         detail = {
@@ -527,9 +563,10 @@ class EmployeeRiskScorer:
             "month_end_score": e2,
             "submit_delay_score": e3,
             "near_threshold_ratio": round(near_ratio, 4),
-            "near_threshold_score": e4,
+            "max_cat_threshold_ratio": round(max_cat_ratio, 4),
+            "threshold_gaming_score": e4,
         }
-        return _clamp(score), detail
+        return min(20, score), detail
 
     # ── 主评分入口 ────────────────────────────────────────────────
 
@@ -575,11 +612,11 @@ class EmployeeRiskScorer:
 
         # 生成 top risk factors
         factors: list[tuple[int, str]] = []
-        if a_score >= 8:
+        if a_score >= 6:
             trend_info = ""
             if a_detail.get("trend_ratio", 0) > 1.5:
                 trend_info = f", 近期趋势×{a_detail['trend_ratio']:.1f}"
-            factors.append((a_score, f"消费偏离度高 (CV={a_detail.get('cv', 0):.2f}{trend_info})"))
+            factors.append((a_score, f"月度消费偏离 (CV={a_detail.get('cv', 0):.2f}{trend_info})"))
         if b_score >= 8:
             factors.append((b_score, f"月均消费是同组中位数的 {b_detail.get('ratio', 0):.1f} 倍"))
         if c_score >= 8:

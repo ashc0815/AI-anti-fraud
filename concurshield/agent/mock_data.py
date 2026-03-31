@@ -402,6 +402,30 @@ def get_fraud_labels() -> dict[str, str]:
     }
 
 
+class MockCompanyGenerator:
+    """Class wrapper around generate_company() for OOP-style usage."""
+
+    def __init__(
+        self,
+        num_normal: int = 16,
+        num_approvers: int = 4,
+        months: int = 6,
+        seed: int = 2025,
+    ) -> None:
+        self.num_normal = num_normal
+        self.num_approvers = num_approvers
+        self.months = months
+        self.seed = seed
+
+    def generate(self) -> dict[str, list[dict]]:
+        return generate_company(
+            num_normal=self.num_normal,
+            num_approvers=self.num_approvers,
+            months=self.months,
+            seed=self.seed,
+        )
+
+
 def summarize_company(company: dict[str, list[dict]]) -> dict[str, Any]:
     """输出公司数据摘要。"""
     total_records = sum(len(v) for v in company.values())
