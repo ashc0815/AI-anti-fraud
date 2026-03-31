@@ -841,6 +841,138 @@ class GetAmountDistributionTool(Tool):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Tool 14: get_expense_comments  (新写)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# 模拟 comment 数据库
+_MOCK_COMMENTS: dict[str, dict] = {
+    # 正常员工的大额餐饮 — 70% 有 comment，mentions_client=True
+    "EXP-NORMAL-001": {
+        "comment_text": "与客户张总共进晚餐，讨论Q2续约事宜，共4人",
+        "mentions_client": True,
+        "mentions_purpose": True,
+    },
+    "EXP-NORMAL-002": {
+        "comment_text": "客户招待：深圳瑞丰科技李总一行3人，项目启动宴",
+        "mentions_client": True,
+        "mentions_purpose": True,
+    },
+    "EXP-NORMAL-003": {
+        "comment_text": "部门团建聚餐，共8人",
+        "mentions_client": False,
+        "mentions_purpose": True,
+    },
+    # 欺诈员工 — 30% 有 comment，mentions_client=False
+    "EXP-FRAUD-001": {
+        "comment_text": "业务餐饮",
+        "mentions_client": False,
+        "mentions_purpose": False,
+    },
+    "EXP-FRAUD-002": {
+        "comment_text": "",
+        "mentions_client": False,
+        "mentions_purpose": False,
+    },
+    # 周末消费声称业务目的 → contradiction_detected
+    "EXP-WEEKEND-001": {
+        "comment_text": "周六与客户王总讨论合作方案",
+        "mentions_client": True,
+        "mentions_purpose": True,
+        "_is_weekend": True,
+    },
+}
+
+
+class GetExpenseCommentsTool(Tool):
+    name = "get_expense_comments"
+    description = "获取报销单的备注/评论信息，检测是否提及客户、业务目的，以及是否存在矛盾。"
+    input_schema: dict = {
+        "type": "object",
+        "properties": {
+            "expense_id": {"type": "string", "description": "报销单 ID 或报告 ID"},
+        },
+        "required": ["expense_id"],
+    }
+    cost = "free"
+
+    def execute(self, *, expense_id: str, **_: Any) -> dict:
+        import random as _rng
+        _rng.seed(hash(expense_id) % 2**32)
+
+        # 1. 如果有预设 mock 数据直接返回
+        if expense_id in _MOCK_COMMENTS:
+            entry = _MOCK_COMMENTS[expense_id]
+            comment_text = entry.get("comment_text", "")
+            is_weekend = entry.get("_is_weekend", False)
+            mentions_client = entry.get("mentions_client", False)
+            mentions_purpose = entry.get("mentions_purpose", False)
+            contradiction = is_weekend and mentions_purpose
+            return {
+                "expense_id": expense_id,
+                "has_comment": bool(comment_text),
+                "comment_text": comment_text,
+                "mentions_client": mentions_client,
+                "mentions_purpose": mentions_purpose,
+                "contradiction_detected": contradiction,
+            }
+
+        # 2. 根据 expense_id 启发式模拟
+        #    含 "FRAUD" / 异常员工 → 欺诈模式
+        is_fraud_pattern = any(
+            kw in expense_id.upper()
+            for kw in ("FRAUD", "SUSPICIOUS", "018", "019", "020")
+        )
+
+        if is_fraud_pattern:
+            # 欺诈员工：30% 有 comment，mentions_client=False
+            has_comment = _rng.random() < 0.30
+            comment_text = "业务餐饮" if has_comment else ""
+            mentions_client = False
+            mentions_purpose = has_comment and _rng.random() < 0.3
+        else:
+            # 正常员工大额餐饮：70% 有 comment，mentions_client=True
+            has_comment = _rng.random() < 0.70
+            if has_comment:
+                templates = [
+                    "与客户{name}共进午餐，讨论{topic}",
+                    "客户招待：{name}一行{n}人",
+                    "部门{event}，共{n}人",
+                ]
+                names = ["张总", "李总", "王经理", "赵主任"]
+                topics = ["Q2续约", "项目进展", "年度合作", "新需求评审"]
+                events = ["团建聚餐", "季度总结聚餐", "项目庆功宴"]
+                tpl = _rng.choice(templates)
+                comment_text = tpl.format(
+                    name=_rng.choice(names),
+                    topic=_rng.choice(topics),
+                    event=_rng.choice(events),
+                    n=_rng.randint(3, 8),
+                )
+                mentions_client = "客户" in comment_text or "总" in comment_text
+                mentions_purpose = True
+            else:
+                comment_text = ""
+                mentions_client = False
+                mentions_purpose = False
+
+        # 周末矛盾检测：expense_id 含 "SAT"/"SUN"/"WEEKEND" 且声称业务目的
+        is_weekend = any(
+            kw in expense_id.upper() for kw in ("SAT", "SUN", "WEEKEND")
+        )
+        contradiction = is_weekend and mentions_purpose
+
+        return {
+            "expense_id": expense_id,
+            "has_comment": has_comment,
+            "comment_text": comment_text,
+            "mentions_client": mentions_client,
+            "mentions_purpose": mentions_purpose,
+            "contradiction_detected": contradiction,
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Registry factory
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -861,4 +993,5 @@ def create_default_registry() -> ToolRegistry:
     registry.register(GetApprovalHistoryTool())
     registry.register(CheckGeographicFeasibilityTool())
     registry.register(GetAmountDistributionTool())
+    registry.register(GetExpenseCommentsTool())
     return registry
