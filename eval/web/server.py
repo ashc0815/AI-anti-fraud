@@ -27,7 +27,8 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from concurshield.agent.investigator import InvestigationAgent, MockLLMClient
+from concurshield.agent.investigator import InvestigationAgent
+from concurshield.agent.llm_client import LLMClient
 from concurshield.agent.orchestrator import ConcurShieldOrchestrator
 from concurshield.agent.risk_scorer import EmployeeRiskScorer, MockEmployeeData
 from concurshield.agent.tools import create_default_registry

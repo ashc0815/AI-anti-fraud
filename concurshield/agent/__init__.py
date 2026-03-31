@@ -1,19 +1,20 @@
-"""ConcurShield Agent — tools, scoring, investigation, and orchestration."""
+"""ConcurShield Agent — tools, scoring, LLM client, investigation, orchestration."""
 
 from concurshield.agent.tools import Tool, ToolRegistry, create_default_registry
 from concurshield.agent.risk_scorer import EmployeeRiskScorer, MockEmployeeData, RiskScore
+from concurshield.agent.llm_client import LLMClient, LLMResponse, ToolCall, parse_llm_json
 from concurshield.agent.investigator import (
     InvestigationAgent,
     InvestigationReport,
     InvestigationStep,
     InvestigationHypothesis,
-    MockLLMClient,
 )
 from concurshield.agent.orchestrator import (
     ConcurShieldOrchestrator,
     ProcessingResult,
     BatchResult,
 )
+from concurshield.agent.mock_data import MockCompanyGenerator, generate_company
 
 __all__ = [
     # Tools
@@ -24,14 +25,21 @@ __all__ = [
     "EmployeeRiskScorer",
     "MockEmployeeData",
     "RiskScore",
+    # LLM client
+    "LLMClient",
+    "LLMResponse",
+    "ToolCall",
+    "parse_llm_json",
     # Investigation
     "InvestigationAgent",
     "InvestigationReport",
     "InvestigationStep",
     "InvestigationHypothesis",
-    "MockLLMClient",
     # Orchestration
     "ConcurShieldOrchestrator",
     "ProcessingResult",
     "BatchResult",
+    # Mock data
+    "MockCompanyGenerator",
+    "generate_company",
 ]
