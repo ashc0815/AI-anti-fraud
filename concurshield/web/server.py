@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="ConcurShield", version="2.0")
 
 _static_dir = Path(__file__).parent / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 # Global state
