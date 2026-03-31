@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ConcurShield 智能审计平台</title>
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+:root{--primary:#2E75B6;--primary-light:#4A90D9;--primary-dark:#1B4F7A;--bg:#F5F7FA;--surface:#FFF;--border:#E0E6ED;--text:#2C3E50;--text2:#7F8C9A;--green:#27AE60;--red:#E74C3C;--yellow:#F39C12;--orange:#E67E22}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Microsoft YaHei','Segoe UI',sans-serif;background:var(--bg);color:var(--text)}
+.app{display:flex;height:100vh}
+.sidebar{width:220px;background:var(--primary-dark);color:#fff;display:flex;flex-direction:column;flex-shrink:0}
+.sidebar .logo{padding:20px;font-size:18px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.15);display:flex;align-items:center;gap:8px}
+.sidebar .logo span{font-size:22px}
+.sidebar nav{flex:1;padding:12px 0}
+.sidebar .nav-item{padding:12px 20px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,.7);transition:all .2s}
+.sidebar .nav-item:hover{background:rgba(255,255,255,.1);color:#fff}
+.sidebar .nav-item.active{background:var(--primary);color:#fff;border-left:3px solid #fff}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;font-size:16px;font-weight:600}
+.content{flex:1;overflow-y:auto;padding:24px}
+.panel{display:none}.panel.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.card{background:var(--surface);border-radius:8px;padding:20px;border:1px solid var(--border)}
+.card .label{font-size:12px;color:var(--text2);margin-bottom:4px}
+.card .value{font-size:28px;font-weight:700;color:var(--primary)}
+.card .sub{font-size:12px;color:var(--text2);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;color:var(--text2);border-bottom:2px solid var(--border);font-weight:500;font-size:12px}
+td{padding:10px 12px;border-bottom:1px solid var(--border)}
+tr:hover{background:#F0F5FF}
+tr.clickable{cursor:pointer}
+.badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-normal{background:#E8F5E9;color:var(--green)}.badge-elevated{background:#FFF3E0;color:var(--orange)}.badge-high{background:#FFEBEE;color:var(--red)}
+.score-bar{width:100px;height:6px;background:#E8ECF1;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:6px}
+.score-bar-fill{height:100%;border-radius:3px}
+.btn{padding:8px 16px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-light)}
+.btn-sm{padding:4px 10px;font-size:12px}
+.radar-wrap{max-width:360px;margin:0 auto}
+.inv-controls{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.inv-controls input,.inv-controls select{border:1px solid var(--border);padding:8px 12px;border-radius:6px;font-size:13px;outline:none}
+.inv-controls input:focus{border-color:var(--primary)}
+.stream-box{background:#F8F9FB;border:1px solid var(--border);border-radius:8px;min-height:200px;max-height:500px;overflow-y:auto;padding:16px;font-size:13px}
+.stream-box:empty::after{content:'选择员工并点击"启动调查"开始';color:var(--text2);font-style:italic}
+.round-hdr{font-weight:600;color:var(--primary);margin:12px 0 6px;font-size:14px}
+.reasoning{color:var(--text2);white-space:pre-wrap;padding-left:12px;border-left:2px solid var(--border);margin-bottom:8px}
+.tool-call{color:var(--primary);margin:4px 0;font-size:12px}
+.finding{margin:4px 0;padding:4px 8px;border-radius:4px;font-size:12px}
+.finding.positive{background:#E8F5E9;color:var(--green);border-left:3px solid var(--green)}
+.finding.negative{background:#FFEBEE;color:var(--red);border-left:3px solid var(--red)}
+.finding.neutral{background:#E3F2FD;color:var(--primary);border-left:3px solid var(--primary)}
+.report-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:16px}
+.report-card h4{font-size:14px;margin-bottom:10px;color:var(--text)}
+.hyp-card{background:#F8F9FB;border-radius:6px;padding:12px;margin-bottom:8px}
+.hyp-card .name{font-weight:600;font-size:13px}.hyp-card .conf{font-size:12px;color:var(--primary)}
+.evidence{font-size:12px;margin:2px 0}.evidence.support{color:var(--green)}.evidence.contra{color:var(--red)}
+.tier-badge{display:inline-block;padding:4px 14px;border-radius:6px;font-size:16px;font-weight:700}
+.tier-T1{background:#E8F5E9;color:var(--green)}.tier-T2{background:#FFF3E0;color:var(--yellow)}.tier-T3{background:#FFF3E0;color:var(--orange)}.tier-T4{background:#FFEBEE;color:var(--red)}
+.action-item{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.action-item:last-child{border-bottom:none}
+.p-high{background:#FFEBEE;color:var(--red);padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.p-medium{background:#FFF3E0;color:var(--orange);padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.p-low{background:#E8F5E9;color:var(--green);padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.beyond{color:var(--red);font-size:13px;padding:4px 0}
+.history-item{display:flex;gap:12px;align-items:center;padding:12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s}
+.history-item:hover{background:#F0F5FF}
+.settings-form label{display:block;font-size:13px;color:var(--text2);margin-bottom:4px;margin-top:16px}
+.settings-form input,.settings-form select{width:100%;max-width:400px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px}
+.progress{width:100%;height:4px;background:#E8ECF1;border-radius:2px;margin:8px 0}
+.progress-fill{height:100%;background:var(--primary);border-radius:2px;transition:width .3s}
+.chart-wrap{max-width:500px;height:250px}
+.empty{text-align:center;color:var(--text2);padding:40px;font-size:14px}
+</style>
+</head>
+<body>
+<div id="app" class="app">
+  <div class="sidebar">
+    <div class="logo"><span>🛡</span> ConcurShield</div>
+    <nav>
+      <div v-for="t in tabs" :key="t.id" class="nav-item" :class="{active:tab===t.id}" @click="tab=t.id">
+        <span>{{t.icon}}</span> {{t.label}}
+      </div>
+    </nav>
+  </div>
+  <div class="main">
+    <div class="topbar">{{currentTab.label}}</div>
+    <div class="content">
+
+      <!-- ═══ 风险仪表盘 ═══ -->
+      <div class="panel" :class="{active:tab==='dashboard'}">
+        <div class="cards">
+          <div class="card"><div class="label">员工总数</div><div class="value">{{dash.total_employees||0}}</div></div>
+          <div class="card"><div class="label">报销总笔数</div><div class="value">{{dash.total_records||0}}</div></div>
+          <div class="card"><div class="label">报销总金额</div><div class="value">¥{{(dash.total_amount||0).toLocaleString()}}</div></div>
+          <div class="card"><div class="label">已完成调查</div><div class="value">{{dash.investigations_completed||0}}</div></div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <h4 style="margin-bottom:12px">风险分布</h4>
+          <div style="display:flex;gap:24px;flex-wrap:wrap">
+            <div v-if="dash.by_classification">
+              <span class="badge badge-normal">正常 {{dash.by_classification.normal||0}}</span>
+              <span class="badge badge-elevated" style="margin-left:8px">关注 {{dash.by_classification.elevated||0}}</span>
+              <span class="badge badge-high" style="margin-left:8px">高风险 {{dash.by_classification.high||0}}</span>
+            </div>
+          </div>
+          <div class="chart-wrap" style="margin-top:16px"><canvas id="distChart"></canvas></div>
+        </div>
+        <div class="card">
+          <h4 style="margin-bottom:12px">风险排名 Top 5</h4>
+          <table>
+            <tr><th>员工</th><th>分数</th><th>分类</th><th>主要风险</th></tr>
+            <tr v-for="r in dash.top_risk||[]" :key="r.employee_id">
+              <td><strong>{{r.employee_id}}</strong></td>
+              <td><span class="score-bar"><span class="score-bar-fill" :style="{width:r.score+'%',background:scoreColor(r.score)}"></span></span>{{r.score}}</td>
+              <td><span :class="'badge badge-'+r.classification">{{r.classification}}</span></td>
+              <td style="font-size:12px;color:var(--text2)">{{r.top_factor}}</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ 员工画像 ═══ -->
+      <div class="panel" :class="{active:tab==='profile'}">
+        <div class="inv-controls">
+          <select v-model="profileId" @change="loadProfile">
+            <option value="">选择员工...</option>
+            <option v-for="s in scores" :key="s.employee_id" :value="s.employee_id">{{s.employee_id}} ({{s.total_score}}分)</option>
+          </select>
+        </div>
+        <div v-if="profile" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="card">
+            <h4>五维雷达图</h4>
+            <div class="radar-wrap"><canvas id="radarChart"></canvas></div>
+          </div>
+          <div class="card">
+            <h4>基本信息</h4>
+            <div style="font-size:13px;line-height:2">
+              <div>总笔数: <strong>{{profile.total_expenses}}</strong></div>
+              <div>总金额: <strong>¥{{profile.total_amount.toLocaleString()}}</strong></div>
+              <div>风险分: <strong>{{profile.risk_score.total_score}}</strong> ({{profile.risk_score.classification}})</div>
+              <div>YoY: {{profile.risk_score.yoy_correction}}</div>
+            </div>
+          </div>
+          <div class="card">
+            <h4>月度趋势</h4>
+            <div style="height:200px"><canvas id="monthlyChart"></canvas></div>
+          </div>
+          <div class="card">
+            <h4>费用类型分布</h4>
+            <div style="height:200px"><canvas id="catChart"></canvas></div>
+          </div>
+          <div class="card" style="grid-column:1/3">
+            <h4>近期明细</h4>
+            <table>
+              <tr><th>日期</th><th>城市</th><th>商户</th><th>类型</th><th>金额</th></tr>
+              <tr v-for="e in profile.recent_expenses" :key="e.id">
+                <td>{{e.date}}</td><td>{{e.city}}</td><td>{{e.merchant}}</td><td>{{e.category}}</td><td>¥{{e.amount}}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        <div v-else class="empty">请选择一个员工查看画像</div>
+      </div>
+
+      <!-- ═══ AI 行为调查 ═══ -->
+      <div class="panel" :class="{active:tab==='investigate'}">
+        <div class="card">
+          <h4>员工风险排名</h4>
+          <table>
+            <tr><th>员工</th><th>分数</th><th>分类</th><th>主要风险</th><th></th></tr>
+            <tr v-for="s in scores" :key="s.employee_id" class="clickable" @click="invEmpId=s.employee_id">
+              <td><strong>{{s.employee_id}}</strong></td>
+              <td><span class="score-bar"><span class="score-bar-fill" :style="{width:s.total_score+'%',background:scoreColor(s.total_score)}"></span></span>{{s.total_score}}</td>
+              <td><span :class="'badge badge-'+s.classification">{{s.classification}}</span></td>
+              <td style="font-size:12px;color:var(--text2);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{s.top_risk_factors[0]||'-'}}</td>
+              <td><button class="btn btn-primary btn-sm" @click.stop="startInv(s.employee_id)">调查</button></td>
+            </tr>
+          </table>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h4>启动调查</h4>
+          <div class="inv-controls">
+            <input v-model="invEmpId" placeholder="员工ID（如 EMP_PHANTOM）">
+            <button class="btn btn-primary" @click="startInv(invEmpId)" :disabled="invRunning">{{invRunning?'调查中...':'启动调查'}}</button>
+            <span style="color:var(--text2);font-size:13px">{{invStatus}}</span>
+          </div>
+          <div class="progress" v-if="invRunning"><div class="progress-fill" :style="{width:invProgress+'%'}"></div></div>
+        </div>
+        <div class="card" style="margin-top:16px" v-if="invEvents.length||invRunning">
+          <h4>{{invRunning?'🔍 正在调查 '+invEmpId+'...':'调查完成'}}</h4>
+          <div class="stream-box" ref="streamBox">
+            <template v-for="(evt,i) in invEvents" :key="i">
+              <div v-if="evt.type==='reasoning'" class="round-hdr">轮次 {{evt.data.round}}</div>
+              <div v-if="evt.type==='reasoning'" class="reasoning">{{evt.data.text}}</div>
+              <div v-if="evt.type==='tool_call'" class="tool-call">📋 调用工具: <strong>{{evt.data.tool_name}}</strong></div>
+              <div v-if="evt.type==='tool_result'" :class="'finding '+evt.data.sentiment">
+                {{evt.data.sentiment==='positive'?'✓':evt.data.sentiment==='negative'?'✗':'ℹ'}}
+                <strong>{{evt.data.tool_name}}</strong>: {{summarize(evt.data.tool_name,evt.data.result)}}
+              </div>
+              <div v-if="evt.type==='conclude'" class="round-hdr">轮次 {{evt.data.round}} — 结论</div>
+              <div v-if="evt.type==='conclude'" class="reasoning">{{evt.data.text}}</div>
+            </template>
+          </div>
+        </div>
+        <div v-if="invReport" class="report-card">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+            <span :class="'tier-badge tier-'+invReport.recommended_tier">{{invReport.recommended_tier}}</span>
+            <span style="font-size:13px;color:var(--text2)">{{invReport.tier_reasoning}}</span>
+          </div>
+          <div style="background:#F8F9FB;padding:12px;border-radius:6px;font-size:14px;margin-bottom:16px">{{invReport.summary}}</div>
+          <h4>活跃假设</h4>
+          <div v-for="h in invReport.active_hypotheses||[]" :key="h.name" class="hyp-card">
+            <div class="name">{{h.name}} <span class="conf">置信度 {{(h.confidence*100).toFixed(0)}}%</span></div>
+            <div style="font-size:12px;color:var(--text2)">{{h.description}}</div>
+            <div v-for="e in h.supporting_evidence||[]" class="evidence support">+ {{e}}</div>
+            <div v-for="e in h.contradicting_evidence||[]" class="evidence contra">- {{e}}</div>
+          </div>
+          <h4 style="margin-top:12px">推荐行动</h4>
+          <div v-for="a in invReport.recommended_actions||[]" :key="a.action" class="action-item">
+            <span :class="'p-'+(a.priority||'medium')">{{(a.priority||'medium').toUpperCase()}}</span>
+            <div><div>{{a.action}}</div><div style="font-size:11px;color:var(--text2)">{{a.source}} | {{a.effort}}</div></div>
+          </div>
+          <div v-if="invReport.beyond_system_capability&&invReport.beyond_system_capability.length" style="margin-top:12px">
+            <h4>超出系统能力</h4>
+            <div v-for="b in invReport.beyond_system_capability" class="beyond">⚠ {{b}}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 调查历史 ═══ -->
+      <div class="panel" :class="{active:tab==='history'}">
+        <div class="card">
+          <h4>调查历史</h4>
+          <div v-if="!history.length" class="empty">暂无调查记录</div>
+          <div v-for="h in history" :key="h.id" class="history-item" @click="replayInv(h.id)">
+            <span :class="'tier-badge tier-'+(h.recommended_tier||'T2')" style="font-size:12px;padding:2px 8px">{{h.recommended_tier}}</span>
+            <div style="flex:1">
+              <div><strong>{{h.employee_id}}</strong></div>
+              <div style="font-size:12px;color:var(--text2);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{h.summary||h.trigger_reason}}</div>
+              <div style="font-size:11px;color:var(--text2)">{{h.total_rounds}} 轮 | {{h.hypotheses_count}} 假设 | {{h.duration_ms}}ms</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 系统设置 ═══ -->
+      <div class="panel" :class="{active:tab==='settings'}">
+        <div class="card settings-form">
+          <h4>系统设置</h4>
+          <label>LLM 模型</label>
+          <select v-model="settings.llm_provider">
+            <option value="mock">Mock（离线测试）</option>
+            <option value="glm-4-flash">GLM-4-Flash（免费）</option>
+            <option value="glm-4">GLM-4（¥5/百万token）</option>
+            <option value="glm-5">GLM-5</option>
+            <option value="deepseek-v3">DeepSeek-V3</option>
+          </select>
+          <label>API Key</label>
+          <input v-model="settings.api_key" type="password" placeholder="输入 API Key">
+          <label>风险阈值（≥此分数触发 Agent）</label>
+          <input v-model.number="settings.risk_threshold" type="number" min="0" max="100">
+          <label>随机抽检比例</label>
+          <input v-model.number="settings.random_sample_rate" type="number" step="0.01" min="0" max="1">
+          <label>数据源</label>
+          <div style="font-size:13px;color:var(--text2);margin-top:4px">当前: {{settings.data_source||'mock'}}</div>
+          <div style="margin-top:16px">
+            <button class="btn btn-primary" @click="saveSettings">保存设置</button>
+            <input type="file" accept=".csv" @change="uploadCSV" style="margin-left:12px;font-size:13px">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const{createApp,ref,reactive,computed,onMounted,nextTick,watch}=Vue
+createApp({
+  setup(){
+    const tabs=[
+      {id:'dashboard',icon:'📊',label:'风险仪表盘'},
+      {id:'profile',icon:'👤',label:'员工画像'},
+      {id:'investigate',icon:'🔍',label:'AI 行为调查'},
+      {id:'history',icon:'📋',label:'调查历史'},
+      {id:'settings',icon:'⚙',label:'系统设置'},
+    ]
+    const tab=ref('dashboard')
+    const currentTab=computed(()=>tabs.find(t=>t.id===tab.value)||tabs[0])
+
+    const dash=ref({})
+    const scores=ref([])
+    const profileId=ref('')
+    const profile=ref(null)
+    const history=ref([])
+    const settings=reactive({llm_provider:'mock',api_key:'',risk_threshold:61,random_sample_rate:0.03,data_source:'mock'})
+
+    const invEmpId=ref('')
+    const invRunning=ref(false)
+    const invStatus=ref('')
+    const invProgress=ref(0)
+    const invEvents=ref([])
+    const invReport=ref(null)
+    const streamBox=ref(null)
+
+    let charts={}
+
+    const scoreColor=s=>s>60?'var(--red)':s>30?'var(--orange)':'var(--green)'
+
+    async function loadDash(){
+      try{
+        const[d,s]=await Promise.all([fetch('/api/dashboard').then(r=>r.json()),fetch('/api/risk-scores').then(r=>r.json())])
+        dash.value=d;scores.value=s
+        await nextTick()
+        renderDistChart(d.score_distribution||[])
+      }catch(e){console.error(e)}
+    }
+    function renderDistChart(dist){
+      const ctx=document.getElementById('distChart')
+      if(!ctx)return
+      if(charts.dist)charts.dist.destroy()
+      charts.dist=new Chart(ctx,{type:'bar',data:{labels:['0-9','10-19','20-29','30-39','40-49','50-59','60-69','70-79','80-89','90-100'],datasets:[{label:'员工数',data:dist,backgroundColor:'#2E75B6'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}})
+    }
+    async function loadProfile(){
+      if(!profileId.value){profile.value=null;return}
+      try{
+        const r=await fetch(`/api/employee/${profileId.value}/profile`).then(r=>r.json())
+        profile.value=r
+        await nextTick()
+        renderRadar(r.risk_score.dimension_scores)
+        renderMonthly(r.monthly_totals)
+        renderCat(r.category_totals)
+      }catch(e){console.error(e)}
+    }
+    function renderRadar(dim){
+      const ctx=document.getElementById('radarChart')
+      if(!ctx)return
+      if(charts.radar)charts.radar.destroy()
+      const labels=['消费偏离','同组偏离','供应商集中','模式稳定','时间异常']
+      const vals=[dim.A_expense_deviation||0,dim.B_peer_deviation||0,dim.C_merchant_concentration||0,dim.D_pattern_stability||0,dim.E_time_patterns||0]
+      charts.radar=new Chart(ctx,{type:'radar',data:{labels,datasets:[{label:'风险分',data:vals,backgroundColor:'rgba(46,117,182,0.2)',borderColor:'#2E75B6',pointBackgroundColor:'#2E75B6'}]},options:{responsive:true,scales:{r:{beginAtZero:true,max:20,ticks:{stepSize:5}}},plugins:{legend:{display:false}}}})
+    }
+    function renderMonthly(monthly){
+      const ctx=document.getElementById('monthlyChart')
+      if(!ctx)return
+      if(charts.monthly)charts.monthly.destroy()
+      const labels=Object.keys(monthly)
+      const data=Object.values(monthly)
+      charts.monthly=new Chart(ctx,{type:'line',data:{labels,datasets:[{label:'月度消费',data,borderColor:'#2E75B6',backgroundColor:'rgba(46,117,182,0.1)',fill:true,tension:0.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}})
+    }
+    function renderCat(cats){
+      const ctx=document.getElementById('catChart')
+      if(!ctx)return
+      if(charts.cat)charts.cat.destroy()
+      charts.cat=new Chart(ctx,{type:'doughnut',data:{labels:Object.keys(cats),datasets:[{data:Object.values(cats).map(v=>Math.round(v)),backgroundColor:['#2E75B6','#27AE60','#F39C12','#E74C3C','#9B59B6']}]},options:{responsive:true,maintainAspectRatio:false}})
+    }
+
+    async function startInv(eid){
+      if(!eid){alert('请输入员工ID');return}
+      invEmpId.value=eid;invRunning.value=true;invStatus.value='启动中...';invProgress.value=5;invEvents.value=[];invReport.value=null
+      try{
+        const r=await fetch('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({employee_id:eid})}).then(r=>r.json())
+        pollInv(r.investigation_id)
+      }catch(e){invRunning.value=false;invStatus.value='启动失败'}
+    }
+    async function pollInv(id){
+      let lastIdx=0
+      const poll=async()=>{
+        try{
+          const d=await fetch(`/api/investigate/${id}/status`).then(r=>r.json())
+          invProgress.value=d.progress
+          invStatus.value=`轮次 ${d.current_round} — ${d.status}`
+          while(lastIdx<d.events.length){invEvents.value.push(d.events[lastIdx]);lastIdx++}
+          await nextTick();if(streamBox.value)streamBox.value.scrollTop=streamBox.value.scrollHeight
+          if(d.status==='completed'){
+            invRunning.value=false;invProgress.value=100;invStatus.value='调查完成'
+            if(d.report){invReport.value=d.report}
+            loadHistory()
+            return
+          }
+          if(d.status==='failed'){invRunning.value=false;invStatus.value='调查失败';return}
+          setTimeout(poll,500)
+        }catch(e){setTimeout(poll,1000)}
+      }
+      poll()
+    }
+    function summarize(name,r){
+      if(r.error)return'错误: '+r.error
+      switch(name){
+        case'get_employee_profile':return`月均¥${r.monthly_avg_expense}, 城市:${(r.top_cities||[]).join(',')}, 周末:${((r.weekend_expense_ratio||0)*100).toFixed(0)}%`
+        case'get_approval_history':return`驳回率${((r.rejection_rate||0)*100).toFixed(1)}%, 越权${r.override_count||0}次`
+        case'get_amount_distribution':return`${r.total_count}笔, 近阈值${((r.near_threshold_ratio||0)*100).toFixed(0)}%`
+        case'get_employee_recent_expenses':return`${r.count}笔, ${r.months}个月`
+        default:return JSON.stringify(r).slice(0,100)
+      }
+    }
+    async function loadHistory(){
+      try{history.value=await fetch('/api/investigations').then(r=>r.json())}catch(e){}
+    }
+    async function replayInv(id){
+      try{
+        const d=await fetch(`/api/investigate/${id}/status`).then(r=>r.json())
+        tab.value='investigate';invEvents.value=d.events||[];invReport.value=d.report
+        invEmpId.value=d.report?.employee_id||''
+      }catch(e){}
+    }
+    async function loadSettings(){
+      try{const s=await fetch('/api/settings').then(r=>r.json());Object.assign(settings,s)}catch(e){}
+    }
+    async function saveSettings(){
+      try{await fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});alert('设置已保存')}catch(e){alert('保存失败')}
+    }
+    async function uploadCSV(e){
+      const file=e.target.files[0];if(!file)return
+      const fd=new FormData();fd.append('file',file)
+      try{
+        const r=await fetch('/api/upload-csv',{method:'POST',body:fd}).then(r=>r.json())
+        if(r.success){alert(`上传成功: ${r.total_employees}个员工, ${r.total_records}笔记录`);loadDash()}
+        else alert('上传失败: '+r.error)
+      }catch(e){alert('上传失败')}
+    }
+
+    watch(tab,v=>{if(v==='dashboard')loadDash();if(v==='history')loadHistory();if(v==='settings')loadSettings()})
+
+    onMounted(()=>{loadDash();loadSettings()})
+
+    return{tabs,tab,currentTab,dash,scores,profileId,profile,history,settings,invEmpId,invRunning,invStatus,invProgress,invEvents,invReport,streamBox,scoreColor,loadProfile,startInv,summarize,replayInv,saveSettings,uploadCSV}
+  }
+}).mount('#app')
+</script>
+</body>
+</html>
