@@ -11,8 +11,8 @@ from concurshield.agent.investigator import (
 )
 from concurshield.agent.orchestrator import (
     ConcurShieldOrchestrator,
-    ProcessingResult,
-    BatchResult,
+    AnalysisResult,
+    EmployeeResult,
 )
 from concurshield.agent.mock_data import MockCompanyGenerator, generate_company
 
@@ -37,8 +37,8 @@ __all__ = [
     "InvestigationHypothesis",
     # Orchestration
     "ConcurShieldOrchestrator",
-    "ProcessingResult",
-    "BatchResult",
+    "AnalysisResult",
+    "EmployeeResult",
     # Mock data
     "MockCompanyGenerator",
     "generate_company",
